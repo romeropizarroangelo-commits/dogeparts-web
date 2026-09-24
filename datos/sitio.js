@@ -19,5 +19,5 @@ window.SITE = {
   instagram: '',                            // URL completa del perfil
   facebook : '',                            // URL completa de la página
 
-  siteUrl  : ''                             // dominio definitivo, ej. 'https://dogeparts.pe' (activa canonical y OG absolutos)
+  siteUrl  : 'https://romeropizarroangelo-commits.github.io/dogeparts-web'  // URL pública actual; cambiar por el dominio definitivo (ej. 'https://dogeparts.pe') cuando exista
 };

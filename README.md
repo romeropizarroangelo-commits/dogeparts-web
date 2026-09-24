@@ -5,6 +5,9 @@ catálogo buscable, fichas por repuesto, cotización por WhatsApp y formulario d
 solicitud. Sitio estático: **no necesita servidor, base de datos, ni instalación**.
 Se abre con doble clic en `index.html` y se publica subiendo la carpeta tal cual.
 
+**Sitio publicado:** https://romeropizarroangelo-commits.github.io/dogeparts-web/  
+**Repositorio:** https://github.com/romeropizarroangelo-commits/dogeparts-web
+
 ## Estructura
 
 ```
@@ -66,8 +69,10 @@ Si el repuesto no tiene código, se omite esa parte sin dejar comas sueltas.
 
 ## Publicar
 
-Es una carpeta estática. Funciona en GitHub Pages, Netlify, Vercel, Cloudflare
-Pages o cualquier hosting con solo subir los archivos. No hay paso de compilación.
+Está publicada con **GitHub Pages** desde la rama `main`: cada `git push` a `main`
+actualiza la web en uno o dos minutos. Al ser una carpeta estática también
+funcionaría en Netlify, Vercel, Cloudflare Pages o cualquier hosting. No hay
+paso de compilación.
 
 Cuando exista el dominio definitivo, ponerlo en `siteUrl` dentro de
 `datos/sitio.js` (por ejemplo `'https://dogeparts.pe'`): con eso las etiquetas
