@@ -1,0 +1,6 @@
+node_modules/
+tests/capturas/
+tests/.perfil-navegador/
+.DS_Store
+Thumbs.db
+desktop.ini
