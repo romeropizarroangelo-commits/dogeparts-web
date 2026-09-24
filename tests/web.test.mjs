@@ -32,8 +32,8 @@ await goto(URL_);
 // ---------- carga limpia ----------
 const consErr = c.evs.filter(e => e.method === 'Log.entryAdded' && e.params.entry.level === 'error' && !/fonts\.g/.test(e.params.entry.text)).map(e => e.params.entry.text);
 ok('Sin errores de consola al cargar', consErr.length === 0, JSON.stringify(consErr));
-ok('Solo se cargan scripts locales', await js("[...document.scripts].every(s=>!s.src||!/^https?:/.test(s.src))") === true);
-ok('La única hoja externa es Google Fonts', await js("[...document.querySelectorAll('link[rel=stylesheet]')].every(l=>!/^https?:/.test(l.href)||/fonts\\.googleapis\\.com/.test(l.href))") === true);
+ok('Solo se cargan scripts del propio sitio', await js("[...document.scripts].every(s=>!s.src||new URL(s.src).origin===location.origin)") === true);
+ok('La única hoja de estilos externa es Google Fonts', await js("[...document.querySelectorAll('link[rel=stylesheet]')].every(l=>new URL(l.href).origin===location.origin||/fonts\.googleapis\.com/.test(l.href))") === true);
 
 // ---------- render base ----------
 ok('Renderiza 2 productos', await js("document.querySelectorAll('#products .product').length") === 2);
