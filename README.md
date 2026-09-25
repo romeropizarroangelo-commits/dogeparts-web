@@ -5,7 +5,7 @@ catálogo buscable, fichas por repuesto, cotización por WhatsApp y formulario d
 solicitud. Sitio estático: **no necesita servidor, base de datos, ni instalación**.
 Se abre con doble clic en `index.html` y se publica subiendo la carpeta tal cual.
 
-**Sitio publicado:** https://romeropizarroangelo-commits.github.io/dogeparts-web/  
+**Sitio publicado:** https://dogeparts.pe (dominio propio; `www.dogeparts.pe` redirige)  
 **Repositorio:** https://github.com/romeropizarroangelo-commits/dogeparts-web
 
 ## Estructura
@@ -74,9 +74,10 @@ actualiza la web en uno o dos minutos. Al ser una carpeta estática también
 funcionaría en Netlify, Vercel, Cloudflare Pages o cualquier hosting. No hay
 paso de compilación.
 
-Cuando exista el dominio definitivo, ponerlo en `siteUrl` dentro de
-`datos/sitio.js` (por ejemplo `'https://dogeparts.pe'`): con eso las etiquetas
-`canonical` y Open Graph pasan a usar direcciones absolutas.
+El dominio `dogeparts.pe` está registrado en Punto.pe y apunta a GitHub Pages
+(registros A `185.199.108-111.153` y CNAME `www`). El archivo `CNAME` de la raíz
+es el que le dice a GitHub qué dominio servir: no borrarlo. `siteUrl` en
+`datos/sitio.js` debe coincidir con él.
 
 ## Pruebas
 
