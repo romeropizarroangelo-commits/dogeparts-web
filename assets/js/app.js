@@ -93,8 +93,13 @@ function quoteCta(p, cls){
     : `<a class="btn ${cls}" href="#solicitar" data-quote="${esc(p.slug)}">Solicitar cotización</a>`;
 }
 const telHref = s => 'tel:' + String(s).replace(/[^\d+]/g,'');
+const hasGeo = () => typeof SITE.lat === 'number' && typeof SITE.lon === 'number';
 const mapSearchUrl = () => SITE.mapUrl || (SITE.address ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(SITE.address) : '');
-const mapEmbedUrl  = () => SITE.address ? 'https://www.google.com/maps?q=' + encodeURIComponent(SITE.address) + '&output=embed' : '';
+const mapDirectionsUrl = () => hasGeo() ? `https://www.google.com/maps/dir/?api=1&destination=${SITE.lat},${SITE.lon}` : mapSearchUrl();
+/** Mapa incrustado de OpenStreetMap (servicio oficial de incrustación, sin clave ni cuenta). */
+const mapEmbedUrl  = () => hasGeo()
+  ? `https://www.openstreetmap.org/export/embed.html?bbox=${(SITE.lon-0.0055).toFixed(6)},${(SITE.lat-0.0040).toFixed(6)},${(SITE.lon+0.0055).toFixed(6)},${(SITE.lat+0.0040).toFixed(6)}&layer=mapnik&marker=${SITE.lat},${SITE.lon}`
+  : '';
 
 /* ---------- carga de datos (punto único de cambio si algún día hay API) ---------- */
 async function loadProducts(){
@@ -454,9 +459,9 @@ function renderContact(){
   if(SITE.address){
     map.hidden = false;
     map.innerHTML = `<div class="map-face">${icon('pin')}<b>${esc(SITE.address)}</b>
-      <span>El mapa se carga desde Google Maps cuando tú lo pidas.</span>
-      <div class="row"><button type="button" class="btn btn-primary btn-sm" id="loadMap">Ver mapa</button>
-      <a class="btn btn-light btn-sm" href="${esc(mapSearchUrl())}" target="_blank" rel="noopener">Cómo llegar</a></div></div>`;
+      <span>${hasGeo() ? 'Cargando el mapa…' : 'Mapa no disponible: faltan las coordenadas del local.'}</span>
+      <div class="row"><a class="btn btn-primary btn-sm" href="${esc(mapDirectionsUrl())}" target="_blank" rel="noopener">Cómo llegar</a>
+      <a class="btn btn-light btn-sm" href="${esc(mapSearchUrl())}" target="_blank" rel="noopener">Abrir en Google Maps</a></div></div>`;
   } else {
     map.hidden = true;
     document.querySelector('.contact-grid').style.gridTemplateColumns = '1fr';
@@ -486,9 +491,13 @@ function renderContact(){
 /* ---------- mapa: se incrusta solo cuando la sección entra en pantalla ---------- */
 function loadMap(){
   const map = $('map');
-  if(map.hidden || map.querySelector('iframe')) return;
-  map.innerHTML = `<iframe src="${esc(mapEmbedUrl())}" title="Mapa de ${esc(SITE.name||'DOGEPARTS SAC')}: ${esc(SITE.address)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
-    <a class="map-link" href="${esc(mapSearchUrl())}" target="_blank" rel="noopener">${icon('pin')}Cómo llegar</a>`;
+  if(map.hidden || map.querySelector('iframe') || !mapEmbedUrl()) return;
+  map.insertAdjacentHTML('beforeend', `<iframe src="${esc(mapEmbedUrl())}" title="Mapa de ${esc(SITE.name||'DOGEPARTS SAC')}: ${esc(SITE.address)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <div class="map-bar">
+      <a class="map-link" href="${esc(mapDirectionsUrl())}" target="_blank" rel="noopener">${icon('pin')}Cómo llegar</a>
+      <a class="map-link alt" href="${esc(mapSearchUrl())}" target="_blank" rel="noopener">Abrir en Google Maps</a>
+    </div>`);
+  map.querySelector('iframe').addEventListener('load', () => map.classList.add('is-loaded'));
 }
 function setupMap(){
   const map = $('map');
@@ -509,8 +518,9 @@ function initSlider(list, interval){
   box.classList.remove('is-playing');
   box.style.setProperty('--interval', sliderStep + 'ms');
   box.innerHTML = list.map((s,i) => {
-    const cap = `<figcaption>${s.kicker ? `<span class="kicker">${esc(s.kicker)}</span>` : ''}<b>${esc(s.title||'')}</b>${s.text ? `<small>${esc(s.text)}</small>` : ''}</figcaption>`;
-    return `<figure class="slide ${i===0?'is-active':''}" data-i="${i}" aria-hidden="${i!==0}">
+    const credit = s.credit ? `<span class="credit">Foto: ${esc(s.credit.author)} · ${esc(s.credit.license)}</span>` : '';
+    const cap = `<figcaption>${s.kicker ? `<span class="kicker">${esc(s.kicker)}</span>` : ''}<b>${esc(s.title||'')}</b>${s.text ? `<small>${esc(s.text)}</small>` : ''}${credit}</figcaption>`;
+    return `<figure class="slide ${s.fit==='cover'?'cover':''} ${i===0?'is-active':''}" data-i="${i}" aria-hidden="${i!==0}">
       <img src="${esc(s.src)}" alt="${esc(s.alt||'')}" width="${s.w||1100}" height="${s.h||777}" ${i===0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async">
       ${s.href ? `<a class="figlink" href="${esc(s.href)}">${cap}</a>` : cap}
     </figure>`;
@@ -536,8 +546,17 @@ function pauseSlider(){
   clearInterval(sliderTimer); sliderTimer = null;
   $('slider').classList.remove('is-playing');
 }
+function renderCredits(){
+  const box = $('credits'); if(!box) return;
+  const items = SLIDES.filter(s => s.credit);
+  if(!items.length){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<b>Créditos fotográficos</b>` + items.map(s =>
+    `<p><a href="${esc(s.credit.source)}" target="_blank" rel="noopener">${esc(s.title)}</a>: ${esc(s.credit.author)}, <a href="${esc(s.credit.licenseUrl)}" target="_blank" rel="noopener">${esc(s.credit.license)}</a>, vía Wikimedia Commons.</p>`).join('');
+}
 function setupSlider(){
   initSlider(SLIDES);
+  renderCredits();
   const box = $('slider');
   box.addEventListener('pointerenter', () => { if(sliderList.length > 1) pauseSlider(); });
   box.addEventListener('pointerleave', () => { if(sliderList.length > 1 && !REDUCED) playSlider(); });
@@ -600,6 +619,7 @@ function injectStructuredData(){
   if(SITE.phone) org.telephone = SITE.phone;
   if(SITE.email) org.email = SITE.email;
   if(SITE.address) org.address = SITE.address;
+  if(hasGeo()){ org.geo = {'@type':'GeoCoordinates', latitude: SITE.lat, longitude: SITE.lon}; org.hasMap = mapSearchUrl(); }
   const same = [SITE.instagram, SITE.facebook].filter(Boolean);
   if(same.length) org.sameAs = same;
 
@@ -811,7 +831,6 @@ document.addEventListener('click', e => {
     else { navigator.clipboard.writeText(data.url).then(() => { btn.innerHTML = icon('share') + 'Enlace copiado ✓'; }).catch(()=>{}); }
     return;
   }
-  if(e.target.closest('#loadMap')){ loadMap(); return; }
   if(e.target.closest('#totop')){ window.scrollTo({top:0, behavior: REDUCED ? 'auto' : 'smooth'}); return; }
   if(e.target.closest('#lbClose') || e.target.id === 'lightbox'){ closeLightbox(); }
 });

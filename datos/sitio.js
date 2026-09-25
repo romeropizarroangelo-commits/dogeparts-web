@@ -16,6 +16,8 @@ window.SITE = {
   address  : 'Av. Nicolás Arriola 1419, La Victoria, Lima',
   hours    : '9:00 a. m. – 6:00 p. m.',     // días de atención: por confirmar con DOGEPARTS
   mapUrl   : '',                            // enlace propio de Google Maps; vacío = se genera desde la dirección
+  lat      : -12.075358,                    // coordenadas del local (pin del mapa); según Google Maps para la dirección
+  lon      : -77.009017,
   instagram: '',                            // URL completa del perfil
   facebook : '',                            // URL completa de la página
 

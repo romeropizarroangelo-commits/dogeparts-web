@@ -66,8 +66,11 @@ Reglas del catálogo, que la web ya aplica sola:
 El carrusel del inicio rota cada 3 segundos entre las diapositivas de `SLIDES`
 (se detiene al pasar el cursor y no rota si el visitante tiene activada la
 reducción de movimiento). Para añadir un modelo DOOSAN: guarda la foto en
-`assets/img/portada/` y copia un bloque. Usa solo fotografías sobre las que
-DOGEPARTS tenga derechos de uso.
+`assets/img/portada/` y copia un bloque. Las fotos de máquinas actuales son de
+Wikimedia Commons con licencia Creative Commons (uso comercial permitido con
+atribución): el crédito se muestra en la leyenda y en el pie. Si se sustituyen,
+usar solo fotografías con derechos de uso y mantener el campo `credit` cuando
+la licencia lo exija.
 
 ### Mensaje de WhatsApp
 
@@ -83,6 +86,11 @@ Está publicada con **GitHub Pages** desde la rama `main`: cada `git push` a `ma
 actualiza la web en uno o dos minutos. Al ser una carpeta estática también
 funcionaría en Netlify, Vercel, Cloudflare Pages o cualquier hosting. No hay
 paso de compilación.
+
+El mapa de Contacto es una incrustación oficial de OpenStreetMap (sin clave)
+centrada en las coordenadas `lat`/`lon` de `datos/sitio.js`; los botones
+"Cómo llegar" y "Abrir en Google Maps" llevan a Google. Para mostrar los
+mosaicos de Google dentro de la web haría falta una clave de Maps Embed API.
 
 El dominio `dogeparts.pe` está registrado en Punto.pe y apunta a GitHub Pages
 (registros A `185.199.108-111.153` y CNAME `www`). El archivo `CNAME` de la raíz

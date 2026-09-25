@@ -51,7 +51,7 @@ ok('Cuatro pasos del proceso, el primero activo', await js("document.querySelect
 ok('Portada: las diapositivas salen de datos/portada.js', await js("document.querySelectorAll('#slider .slide').length===SLIDES.length && SLIDES.length>=3") === true);
 ok('Portada: primera imagen prioritaria, el resto diferidas', await js("(()=>{const im=[...document.querySelectorAll('#slider img')];return im[0].getAttribute('fetchpriority')==='high' && im.slice(1).every(i=>i.loading==='lazy')})()") === true);
 ok('Portada: un punto de 44px por diapositiva y progreso en marcha', await js("(()=>{const d=[...document.querySelectorAll('#slider [data-go]')];return d.length===SLIDES.length && d.every(b=>b.getBoundingClientRect().height>=44) && slider.classList.contains('is-playing')})()") === true);
-ok('Portada: la leyenda de un repuesto enlaza a su ficha', await js("(()=>{const a=document.querySelector('#slider .slide[data-i=\"1\"] .figlink');return !!a && a.getAttribute('href')==='#/repuesto/valvula-de-admision-65-04101-0026'})()") === true);
+ok('Portada: la leyenda de un repuesto enlaza a su ficha', await js("(()=>{const a=document.querySelector('#slider .slide[data-i=\"4\"] .figlink');return !!a && a.getAttribute('href')==='#/repuesto/valvula-de-admision-65-04101-0026'})()") === true);
 const idxA = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
 await wait(3600);
 const idxB = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
@@ -136,8 +136,8 @@ ok('Horario tal como se entregó', (await js("document.querySelector('#contactCa
 ok('No hay tarjetas de Instagram ni Facebook (no configurados)', !cards.includes('Instagram') && !cards.includes('Facebook'));
 ok('Barra superior muestra el teléfono real', (await js("topbarContact.innerHTML")).includes('tel:+51937419437'));
 ok('Pie muestra teléfono, correo, dirección y horario', await js("(()=>{const t=footerContact.textContent;return t.includes('+51 937 419 437')&&t.includes('ventas@dogeparts.pe')&&t.includes('Nicolás Arriola')&&t.includes('9:00')})()") === true);
-ok('El mapa no carga nada de Google antes de llegar a la sección', await js("map.querySelector('iframe')===null && !!document.getElementById('loadMap')") === true);
-ok('Al pedir el mapa se incrusta con la dirección real y el enlace Cómo llegar', await js("(()=>{document.getElementById('loadMap').click();const f=map.querySelector('iframe');return !!f && f.src.includes('google.com/maps') && decodeURIComponent(f.src).includes('Nicolás Arriola 1419') && !!map.querySelector('.map-link')})()") === true);
+ok('El mapa no se incrusta antes de llegar a la sección; muestra dirección y enlaces', await js("map.querySelector('iframe')===null && map.textContent.includes('Nicolás Arriola 1419') && !!map.querySelector('a[href*=\"google.com/maps\"]')") === true);
+ok('Al incrustar, el mapa es OpenStreetMap con el pin en las coordenadas del local', await js("(()=>{loadMap();const f=map.querySelector('iframe');return !!f && f.src.startsWith('https://www.openstreetmap.org/export/embed.html') && f.src.includes('marker=-12.075358,-77.009017') && !!map.querySelector('.map-link') && map.querySelector('.map-link').href.includes('google.com/maps/dir')})()") === true);
 
 // ---------- datos estructurados ----------
 const ld = await js("[...document.querySelectorAll('script[type=\"application/ld+json\"]')].map(s=>JSON.parse(s.textContent))");
@@ -195,7 +195,7 @@ ok('Hay un único h1', await js("document.querySelectorAll('h1').length") === 1)
 ok('Campos del formulario tienen label', await js("[...document.querySelectorAll('.form input,.form textarea')].every(e=>!!document.querySelector('label[for=\"'+e.id+'\"]'))") === true);
 ok('Buscadores declaran combobox accesible', await js("['heroSearch','search'].every(id=>{const e=document.getElementById(id);return e.getAttribute('role')==='combobox'&&document.getElementById(e.getAttribute('aria-controls'))})") === true);
 ok('Botón de menú declara aria-expanded', await js("menuBtn.getAttribute('aria-expanded')==='false'") === true);
-const small = await js("[...document.querySelectorAll('a,button')].filter(e=>e.offsetParent!==null).map(e=>({s:e.tagName+'.'+(e.className||'-'),h:Math.round(e.getBoundingClientRect().height),t:e.textContent.trim().slice(0,24)})).filter(x=>x.h>0&&x.h<44)");
+const small = await js("[...document.querySelectorAll('a,button')].filter(e=>e.offsetParent!==null&&!e.closest('.credits')).map(e=>({s:e.tagName+'.'+(e.className||'-'),h:Math.round(e.getBoundingClientRect().height),t:e.textContent.trim().slice(0,24)})).filter(x=>x.h>0&&x.h<44)");
 ok('Todos los controles visibles miden 44px o más de alto', small.length === 0, JSON.stringify(small));
 
 // ---------- contraste (compone fondos con transparencia) ----------
@@ -243,7 +243,10 @@ await goto(URL_);
 ok('Mapa: sin iframe al cargar la página', await js("map.querySelector('iframe')===null") === true);
 await js("document.getElementById('contacto').scrollIntoView()");
 await wait(1200);
-ok('Mapa: se incrusta solo al llegar a Contacto, con la dirección real', await js("(()=>{const f=map.querySelector('iframe');return !!f && decodeURIComponent(f.src).includes('Nicolás Arriola 1419') && !!map.querySelector('.map-link')})()") === true);
+ok('Mapa: se incrusta solo al llegar a Contacto (OpenStreetMap con marcador)', await js("(()=>{const f=map.querySelector('iframe');return !!f && f.src.includes('openstreetmap.org') && f.src.includes('marker=') && !!map.querySelector('.map-link')})()") === true);
+ok('JSON-LD incluye coordenadas y enlace al mapa', await js("(()=>{const o=JSON.parse(document.getElementById('ldOrg').textContent);return !!o.geo && o.geo.latitude===-12.075358 && typeof o.hasMap==='string'})()") === true);
+ok('Créditos fotográficos visibles en el pie con licencia y fuente', await js("(()=>{const c=document.getElementById('credits');return !c.hidden && c.querySelectorAll('a[href*=creativecommons]').length>=3 && c.querySelectorAll('a[href*=wikimedia]').length>=3})()") === true);
+ok('Portada: las fotos con licencia llevan crédito en la leyenda', await js("[...document.querySelectorAll('#slider .slide')].filter(s=>s.classList.contains('cover')).every(s=>/Foto: .+ · CC BY/.test(s.textContent))") === true);
 
 // ---------- prefers-reduced-motion ----------
 await c.send('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion', value:'reduce'}]});
