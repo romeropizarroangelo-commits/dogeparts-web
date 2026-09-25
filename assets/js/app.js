@@ -142,7 +142,7 @@ function cardHtml(p, i=0){
   const compatLine = p.compat.length
     ? p.compat.map(c => esc([c.machine, c.engine].filter(Boolean).join(' · '))).join('<br>')
     : 'Compatibilidad por confirmar con número de serie.';
-  return `<article class="product" style="--i:${i}">
+  return `<article class="product" data-tilt style="--i:${i}">
     <a class="product-image" href="#/repuesto/${esc(p.slug)}" aria-label="Ver ficha de ${esc(p.name)}">
       <img src="${esc(img.src)}" alt="${esc(img.alt)}" width="${img.w}" height="${img.h}" loading="lazy" decoding="async">
       <span class="watermark" aria-hidden="true">DGP</span>
@@ -226,7 +226,7 @@ function renderCategories(){
   ALL.forEach(p => counts[p.category] = (counts[p.category]||0) + 1);
   $('categoryGrid').innerHTML = CATEGORIES.map((c,i) => {
     const n = counts[c] || 0;
-    return `<button type="button" class="cat" data-category="${esc(c)}" style="--i:${i}">
+    return `<button type="button" class="cat" data-tilt data-category="${esc(c)}" style="--i:${i}">
       <div class="top"><span>${String(i+1).padStart(2,'0')} / LÍNEA</span>${icon(c)}</div>
       <b>${esc(c)}</b>
       <small>${n ? `${n} ${n===1?'repuesto':'repuestos'} →` : 'Solicítalo →'}</small>
@@ -483,6 +483,111 @@ function renderContact(){
     : `<a class="btn btn-ghost" href="#catalogo">Catálogo</a><a class="btn btn-primary" href="#solicitar">Cotizar</a>`;
 }
 
+/* ---------- mapa: se incrusta solo cuando la sección entra en pantalla ---------- */
+function loadMap(){
+  const map = $('map');
+  if(map.hidden || map.querySelector('iframe')) return;
+  map.innerHTML = `<iframe src="${esc(mapEmbedUrl())}" title="Mapa de ${esc(SITE.name||'DOGEPARTS SAC')}: ${esc(SITE.address)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+    <a class="map-link" href="${esc(mapSearchUrl())}" target="_blank" rel="noopener">${icon('pin')}Cómo llegar</a>`;
+}
+function setupMap(){
+  const map = $('map');
+  if(map.hidden) return;
+  const io = new IntersectionObserver(es => { if(es.some(e => e.isIntersecting)){ loadMap(); io.disconnect(); } }, {rootMargin:'300px 0px'});
+  io.observe(map);
+}
+
+/* ---------- carrusel de portada ---------- */
+const SLIDES = window.SLIDES || [];
+const SLIDE_INTERVAL = Number(window.SLIDE_INTERVAL) || 3000;
+let sliderTimer = null, sliderIndex = 0, sliderList = [], sliderStep = SLIDE_INTERVAL;
+
+function initSlider(list, interval){
+  const box = $('slider');
+  sliderList = list; sliderIndex = 0; sliderStep = interval || SLIDE_INTERVAL;
+  clearInterval(sliderTimer); sliderTimer = null;
+  box.classList.remove('is-playing');
+  box.style.setProperty('--interval', sliderStep + 'ms');
+  box.innerHTML = list.map((s,i) => {
+    const cap = `<figcaption>${s.kicker ? `<span class="kicker">${esc(s.kicker)}</span>` : ''}<b>${esc(s.title||'')}</b>${s.text ? `<small>${esc(s.text)}</small>` : ''}</figcaption>`;
+    return `<figure class="slide ${i===0?'is-active':''}" data-i="${i}" aria-hidden="${i!==0}">
+      <img src="${esc(s.src)}" alt="${esc(s.alt||'')}" width="${s.w||1100}" height="${s.h||777}" ${i===0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async">
+      ${s.href ? `<a class="figlink" href="${esc(s.href)}">${cap}</a>` : cap}
+    </figure>`;
+  }).join('') + (list.length > 1
+    ? `<div class="dots" role="tablist" aria-label="Diapositivas">${list.map((s,i) => `<button type="button" role="tab" data-go="${i}" aria-selected="${i===0}" aria-label="Ver: ${esc(s.title||('diapositiva '+(i+1)))}"><span></span></button>`).join('')}</div><div class="slide-progress" aria-hidden="true"></div>`
+    : '');
+  if(list.length > 1 && !REDUCED) playSlider();
+}
+function showSlide(i){
+  const slides = document.querySelectorAll('#slider .slide');
+  if(!slides.length) return;
+  sliderIndex = (i + slides.length) % slides.length;
+  slides.forEach((s,k) => { s.classList.toggle('is-active', k === sliderIndex); s.setAttribute('aria-hidden', String(k !== sliderIndex)); });
+  document.querySelectorAll('#slider [data-go]').forEach((b,k) => b.setAttribute('aria-selected', String(k === sliderIndex)));
+}
+function playSlider(){
+  const box = $('slider');
+  clearInterval(sliderTimer);
+  sliderTimer = setInterval(() => showSlide(sliderIndex + 1), sliderStep);
+  box.classList.add('is-playing');
+}
+function pauseSlider(){
+  clearInterval(sliderTimer); sliderTimer = null;
+  $('slider').classList.remove('is-playing');
+}
+function setupSlider(){
+  initSlider(SLIDES);
+  const box = $('slider');
+  box.addEventListener('pointerenter', () => { if(sliderList.length > 1) pauseSlider(); });
+  box.addEventListener('pointerleave', () => { if(sliderList.length > 1 && !REDUCED) playSlider(); });
+  box.addEventListener('focusin', () => { if(sliderList.length > 1) pauseSlider(); });
+  box.addEventListener('focusout', e => { if(!box.contains(e.relatedTarget) && sliderList.length > 1 && !REDUCED) playSlider(); });
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-go]'); if(!b) return;
+    showSlide(Number(b.dataset.go));
+    if(!REDUCED) playSlider();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if(sliderList.length < 2 || REDUCED) return;
+    document.hidden ? pauseSlider() : playSlider();
+  });
+}
+
+/* ---------- profundidad 3D (solo con ratón; nunca en táctil ni con movimiento reducido) ---------- */
+function setupTilt(){
+  const hero = $('inicio');
+  hero.addEventListener('pointermove', e => {
+    const r = hero.getBoundingClientRect();
+    hero.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
+    hero.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
+  }, {passive:true});
+  if(REDUCED || !window.matchMedia('(hover:hover) and (pointer:fine)').matches) return;
+  const machine = document.querySelector('.machine'), tilt = $('tilt');
+  machine.addEventListener('pointermove', e => {
+    const r = machine.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+    tilt.style.transform = `rotateY(${(x * 10).toFixed(2)}deg) rotateX(${(-y * 8).toFixed(2)}deg)`;
+  }, {passive:true});
+  machine.addEventListener('pointerleave', () => { tilt.style.transform = ''; });
+  document.addEventListener('pointermove', e => {
+    const el = e.target.closest && e.target.closest('[data-tilt]'); if(!el) return;
+    const r = el.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    el.style.setProperty('--rx', ((.5 - y) * 8).toFixed(2) + 'deg');
+    el.style.setProperty('--ry', ((x - .5) * 10).toFixed(2) + 'deg');
+    el.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+    el.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+    el.classList.add('is-tilt');
+  }, {passive:true});
+  document.addEventListener('pointerout', e => {
+    const el = e.target.closest && e.target.closest('[data-tilt]');
+    if(el && !(e.relatedTarget && el.contains(e.relatedTarget))){
+      el.classList.remove('is-tilt'); el.style.removeProperty('--rx'); el.style.removeProperty('--ry');
+    }
+  }, {passive:true});
+}
+
 /* ---------- datos estructurados (una sola fuente de verdad: SITE y PRODUCTS) ---------- */
 function injectStructuredData(){
   const org = {
@@ -706,10 +811,7 @@ document.addEventListener('click', e => {
     else { navigator.clipboard.writeText(data.url).then(() => { btn.innerHTML = icon('share') + 'Enlace copiado ✓'; }).catch(()=>{}); }
     return;
   }
-  if(e.target.closest('#loadMap')){
-    $('map').innerHTML = `<iframe src="${esc(mapEmbedUrl())}" title="Mapa de ${esc(SITE.name||'DOGEPARTS SAC')}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>`;
-    return;
-  }
+  if(e.target.closest('#loadMap')){ loadMap(); return; }
   if(e.target.closest('#totop')){ window.scrollTo({top:0, behavior: REDUCED ? 'auto' : 'smooth'}); return; }
   if(e.target.closest('#lbClose') || e.target.id === 'lightbox'){ closeLightbox(); }
 });
@@ -767,11 +869,14 @@ function setupScrollEffects(){
 $('year').textContent = new Date().getFullYear();
 $('products').innerHTML = skeletons(2);
 renderMarquee();
+setupSlider();
+setupTilt();
 loadProducts().then(list => {
   ALL = list;
   fillSelects();
   renderCategories();
   renderContact();
+  setupMap();
   render();
   injectStructuredData();
   attachSuggest($('heroSearch'), $('heroSug'));

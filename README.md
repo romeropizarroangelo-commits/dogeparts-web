@@ -18,6 +18,8 @@ assets/css/styles.css      estilos
 assets/js/app.js           lógica (búsqueda, filtros, fichas, formulario, efectos)
 assets/img/                imágenes optimizadas que usa la web (WebP)
 assets/img/productos/      fotos de repuestos: ligera para el catálogo y -grande para el zoom
+assets/img/portada/        fotos del carrusel de inicio (modelos de maquinaria)
+datos/portada.js           diapositivas de la portada
 originales/                fotografías y logo originales, sin tocar
 tests/                     batería de pruebas en navegador real (npm test)
 ```
@@ -58,6 +60,14 @@ Reglas del catálogo, que la web ya aplica sola:
 - "Productos similares" solo relaciona repuestos de la misma línea o con la
   misma máquina registrada; nunca infiere relaciones técnicas.
 - El catálogo se pagina solo a partir de 24 repuestos publicados.
+
+### Portada — `datos/portada.js`
+
+El carrusel del inicio rota cada 3 segundos entre las diapositivas de `SLIDES`
+(se detiene al pasar el cursor y no rota si el visitante tiene activada la
+reducción de movimiento). Para añadir un modelo DOOSAN: guarda la foto en
+`assets/img/portada/` y copia un bloque. Usa solo fotografías sobre las que
+DOGEPARTS tenga derechos de uso.
 
 ### Mensaje de WhatsApp
 

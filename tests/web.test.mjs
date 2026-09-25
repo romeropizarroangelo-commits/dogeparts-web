@@ -47,6 +47,34 @@ ok('Producto destacado lleva cinta', await js("document.querySelectorAll('.produ
 ok('Marquesina duplicada y oculta a lectores', await js("document.querySelectorAll('#marqueeClip .marquee span').length===24 && marqueeClip.getAttribute('aria-hidden')==='true'") === true);
 ok('Cuatro pasos del proceso, el primero activo', await js("document.querySelectorAll('.step').length===4 && document.querySelector('.step').classList.contains('is-active')") === true);
 
+// ---------- portada (carrusel) ----------
+ok('Portada: las diapositivas salen de datos/portada.js', await js("document.querySelectorAll('#slider .slide').length===SLIDES.length && SLIDES.length>=3") === true);
+ok('Portada: primera imagen prioritaria, el resto diferidas', await js("(()=>{const im=[...document.querySelectorAll('#slider img')];return im[0].getAttribute('fetchpriority')==='high' && im.slice(1).every(i=>i.loading==='lazy')})()") === true);
+ok('Portada: un punto de 44px por diapositiva y progreso en marcha', await js("(()=>{const d=[...document.querySelectorAll('#slider [data-go]')];return d.length===SLIDES.length && d.every(b=>b.getBoundingClientRect().height>=44) && slider.classList.contains('is-playing')})()") === true);
+ok('Portada: la leyenda de un repuesto enlaza a su ficha', await js("(()=>{const a=document.querySelector('#slider .slide[data-i=\"1\"] .figlink');return !!a && a.getAttribute('href')==='#/repuesto/valvula-de-admision-65-04101-0026'})()") === true);
+const idxA = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
+await wait(3600);
+const idxB = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
+ok('Portada: rota sola cada 3 segundos', idxA !== idxB, idxA + ' -> ' + idxB);
+ok('Portada: se detiene al pasar el cursor', await js("(()=>{slider.dispatchEvent(new PointerEvent('pointerenter'));return !slider.classList.contains('is-playing')})()") === true);
+const idxC = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
+await wait(3400);
+ok('Portada: en pausa no cambia', await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)") === idxC);
+ok('Portada: al salir el cursor sigue', await js("(()=>{slider.dispatchEvent(new PointerEvent('pointerleave'));return slider.classList.contains('is-playing')})()") === true);
+ok('Portada: los puntos cambian de diapositiva y marcan la activa', await js("(()=>{document.querySelectorAll('#slider [data-go]')[2].click();const a=document.querySelector('#slider .slide.is-active');return a.dataset.i==='2' && document.querySelectorAll('#slider [data-go]')[2].getAttribute('aria-selected')==='true' && a.getAttribute('aria-hidden')==='false'})()") === true);
+
+// ---------- profundidad 3D ----------
+const hoverable = await js("matchMedia('(hover:hover) and (pointer:fine)').matches");
+if (hoverable) {
+  ok('3D: la portada se inclina con el cursor', await js("(()=>{const m=document.querySelector('.machine');const r=m.getBoundingClientRect();m.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+r.width*0.9,clientY:r.top+r.height*0.2}));return /rotateY\\(/.test(document.getElementById('tilt').style.transform)})()") === true);
+  ok('3D: vuelve a su sitio al salir', await js("(()=>{const m=document.querySelector('.machine');m.dispatchEvent(new PointerEvent('pointerleave'));return document.getElementById('tilt').style.transform===''})()") === true);
+  ok('3D: las tarjetas de categoría se inclinan', await js("(()=>{const c=document.querySelector('.cat');const r=c.getBoundingClientRect();c.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+r.width*0.8,clientY:r.top+r.height*0.3}));return c.classList.contains('is-tilt') && c.style.getPropertyValue('--ry')!==''})()") === true);
+  ok('3D: la tarjeta se endereza al salir', await js("(()=>{const c=document.querySelector('.cat');c.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:document.body}));return !c.classList.contains('is-tilt')})()") === true);
+  ok('3D: el foco del hero sigue al cursor', await js("(()=>{const h=document.getElementById('inicio');const r=h.getBoundingClientRect();h.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+r.width*0.25,clientY:r.top+r.height*0.5}));return h.style.getPropertyValue('--mx')!==''})()") === true);
+} else {
+  ok('3D: sin ratón (táctil) no se activa la inclinación', await js("document.getElementById('tilt').style.transform===''") === true);
+}
+
 // ---------- búsqueda tolerante ----------
 async function search(q){
   return js("(()=>{const e=document.getElementById('search');e.value=" + JSON.stringify(q) + ";e.dispatchEvent(new Event('input'));return document.querySelectorAll('#products .product').length})()");
@@ -108,8 +136,8 @@ ok('Horario tal como se entregó', (await js("document.querySelector('#contactCa
 ok('No hay tarjetas de Instagram ni Facebook (no configurados)', !cards.includes('Instagram') && !cards.includes('Facebook'));
 ok('Barra superior muestra el teléfono real', (await js("topbarContact.innerHTML")).includes('tel:+51937419437'));
 ok('Pie muestra teléfono, correo, dirección y horario', await js("(()=>{const t=footerContact.textContent;return t.includes('+51 937 419 437')&&t.includes('ventas@dogeparts.pe')&&t.includes('Nicolás Arriola')&&t.includes('9:00')})()") === true);
-ok('El mapa no carga nada de Google hasta que se pide', await js("map.querySelector('iframe')===null && !!document.getElementById('loadMap')") === true);
-ok('Al pedir el mapa se incrusta con la dirección real', await js("(()=>{document.getElementById('loadMap').click();const f=map.querySelector('iframe');return !!f && f.src.includes('google.com/maps') && decodeURIComponent(f.src).includes('Nicolás Arriola 1419')})()") === true);
+ok('El mapa no carga nada de Google antes de llegar a la sección', await js("map.querySelector('iframe')===null && !!document.getElementById('loadMap')") === true);
+ok('Al pedir el mapa se incrusta con la dirección real y el enlace Cómo llegar', await js("(()=>{document.getElementById('loadMap').click();const f=map.querySelector('iframe');return !!f && f.src.includes('google.com/maps') && decodeURIComponent(f.src).includes('Nicolás Arriola 1419') && !!map.querySelector('.map-link')})()") === true);
 
 // ---------- datos estructurados ----------
 const ld = await js("[...document.querySelectorAll('script[type=\"application/ld+json\"]')].map(s=>JSON.parse(s.textContent))");
@@ -207,6 +235,25 @@ for (const [w,h,name] of [[320,780,'06-movil-320'],[375,812,'07-movil-375'],[768
   if(w < 900) ok('Barra inferior móvil con WhatsApp a ' + w + 'px', await js("(()=>{const b=document.getElementById('mbar');return getComputedStyle(b).display!=='none' && !!b.querySelector('a[href^=\"https://wa.me/51937419437\"]')})()") === true);
   await shot(name);
 }
+
+
+// ---------- mapa: carga automática al llegar a la sección ----------
+await setViewport(1440,900);
+await goto(URL_);
+ok('Mapa: sin iframe al cargar la página', await js("map.querySelector('iframe')===null") === true);
+await js("document.getElementById('contacto').scrollIntoView()");
+await wait(1200);
+ok('Mapa: se incrusta solo al llegar a Contacto, con la dirección real', await js("(()=>{const f=map.querySelector('iframe');return !!f && decodeURIComponent(f.src).includes('Nicolás Arriola 1419') && !!map.querySelector('.map-link')})()") === true);
+
+// ---------- prefers-reduced-motion ----------
+await c.send('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion', value:'reduce'}]});
+await goto(URL_);
+ok('Movimiento reducido: la portada no rota sola', await js("!slider.classList.contains('is-playing') && document.querySelector('#slider .slide.is-active').dataset.i==='0'") === true);
+await wait(3400);
+ok('Movimiento reducido: sigue en la primera diapositiva', await js("document.querySelector('#slider .slide.is-active').dataset.i==='0'") === true);
+ok('Movimiento reducido: los puntos siguen funcionando a mano', await js("(()=>{document.querySelectorAll('#slider [data-go]')[1].click();return document.querySelector('#slider .slide.is-active').dataset.i==='1'})()") === true);
+ok('Movimiento reducido: sin inclinación 3D', await js("(()=>{const m=document.querySelector('.machine');const r=m.getBoundingClientRect();m.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+r.width*0.9,clientY:r.top+r.height*0.2}));return document.getElementById('tilt').style.transform===''})()") === true);
+await c.send('Emulation.setEmulatedMedia', {features:[]});
 
 console.log('\nRESULTADO: ' + pass + ' correctas, ' + fail + ' fallidas');
 c.close();
