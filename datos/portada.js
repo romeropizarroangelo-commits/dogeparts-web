@@ -72,7 +72,7 @@ window.SLIDES = [
     alt: 'Válvula de admisión, código 65.04101-0026',
     kicker: 'Repuesto destacado · Motor',
     title: 'Válvula de admisión',
-    text: 'Código 65.04101-0026 · Aplicación registrada DOOSAN DX300',
+    text: 'Código 65.04101-0026 · 1146 / DE08TIS · DOOSAN',
     href: '#/repuesto/valvula-de-admision-65-04101-0026',
     fit: 'contain',
     w: 1200, h: 800
@@ -82,7 +82,7 @@ window.SLIDES = [
     alt: 'Interruptor de motor 24V',
     kicker: 'Repuesto destacado · Sistema eléctrico',
     title: 'Interruptor de motor 24V',
-    text: 'Compatibilidad por confirmar con el número de serie',
+    text: 'Código 2523-9016 · 24V · DOOSAN',
     href: '#/repuesto/interruptor-de-motor-24v',
     fit: 'contain',
     w: 1200, h: 800

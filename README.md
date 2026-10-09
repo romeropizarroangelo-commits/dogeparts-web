@@ -17,7 +17,8 @@ datos/productos.js         catálogo: líneas (CATEGORIES) y repuestos (PRODUCTS
 assets/css/styles.css      estilos
 assets/js/app.js           lógica (búsqueda, filtros, fichas, formulario, efectos)
 assets/img/                imágenes optimizadas que usa la web (WebP)
-assets/img/productos/      fotos de repuestos: ligera para el catálogo y -grande para el zoom
+assets/img/repuestos/      tarjetas de los repuestos (1080x1350) · thumbs/ miniaturas (540x675)
+assets/img/productos/      fotografías originales de los dos primeros repuestos
 assets/img/portada/        fotos del carrusel de inicio (modelos de maquinaria)
 datos/portada.js           diapositivas de la portada
 originales/                fotografías y logo originales, sin tocar
@@ -48,8 +49,11 @@ al formulario interno en vez de a WhatsApp.
 
 ### Repuestos — `datos/productos.js`
 
-Copia uno de los bloques de `PRODUCTS` y cambia los datos. Los campos están
-explicados al principio del archivo. Las fotos van en `assets/img/productos/`.
+Los 70 repuestos entregados por DOGEPARTS están en `PRODUCTS`, en el orden del
+catálogo. Para añadir uno, copia un bloque y cambia los datos; los campos están
+explicados al principio del archivo. La tarjeta grande (1080x1350) va en
+`assets/img/repuestos/` y la miniatura (540x675) en `assets/img/repuestos/thumbs/`.
+Las líneas del catálogo (`CATEGORIES`) son las de ese mismo archivo.
 
 Reglas del catálogo, que la web ya aplica sola:
 

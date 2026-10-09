@@ -30,7 +30,7 @@ function compact(s){ return normalize(s).replace(/[\s._\-\/\\]/g,''); }
 function haystack(p){
   const compatTxt = p.compat.map(c => `${c.machine||''} ${c.engine||''}`).join(' ');
   const specTxt = (p.specs||[]).map(s => `${s.k} ${s.v}`).join(' ');
-  return [p.name, p.code, p.category, compatTxt, specTxt].join(' ');
+  return [p.name, p.code, p.brand, p.category, p.models, p.description, p.machineType, compatTxt, specTxt].join(' ');
 }
 function matchesQuery(p, q){
   if(!q) return true;
@@ -41,11 +41,23 @@ function priceLabel(p){
   return (p.price === null || p.price === undefined || p.price === '') ? 'Consultar precio'
     : new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(p.price);
 }
-function machinesOf(p){ return p.compat.map(c => c.machine).filter(Boolean); }
+function machinesOf(p){ return [...new Set([p.machineType, ...p.compat.map(c => c.machine)].filter(Boolean))]; }
+/** Línea de aplicación: compatibilidades confirmadas o, si no, los modelos del catálogo. */
+function applicationText(p){
+  if(p.compat.length) return p.compat.map(c => [c.machine, c.engine].filter(Boolean).join(' · ')).join('; ');
+  return p.models || '';
+}
 function productUrl(p){ return abs('#/repuesto/' + p.slug); }
 
 /* ---------- iconos (SVG en línea, sin librerías) ---------- */
 const ICONS = {
+  'Culata y válvulas':'<path d="M9 3h6v5l3 3v2H6v-2l3-3z"/><path d="M6 13v8h12v-8M10 17h4"/>',
+  'Refrigeración':'<circle cx="12" cy="12" r="2.2"/><path d="M12 2.5v5M12 16.5v5M2.5 12h5M16.5 12h5M5.3 5.3l3.5 3.5M15.2 15.2l3.5 3.5M5.3 18.7l3.5-3.5M15.2 8.8l3.5-3.5"/>',
+  'Empaques':'<path d="M3 7l9-4 9 4-9 4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/>',
+  'Eléctrico y control':'<path d="M13 2L5 13h6l-1 9 8-12h-6l1-8z"/>',
+  'Lubricación':'<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/><path d="M9.5 14.5a2.5 2.5 0 002.5 2.5"/>',
+  'Hidráulico':'<rect x="3" y="8" width="11" height="8" rx="1.5"/><path d="M14 12h7M18 9.5v5M6 8V5.5M6 18.5V16"/>',
+  'Embrague':'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1"/>',
   'Motor':'<circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
   'Sistema hidráulico':'<rect x="3" y="8" width="11" height="8" rx="1.5"/><path d="M14 12h7M18 9.5v5M6 8V5.5M6 18.5V16"/>',
   'Sistema eléctrico':'<path d="M13 2L5 13h6l-1 9 8-12h-6l1-8z"/>',
@@ -70,7 +82,7 @@ const ICONS = {
   camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   social:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/>'
 };
-const icon = (name, cls='') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]||''}</svg>`;
+const icon = (name, cls='') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]||ICONS['Otros repuestos']}</svg>`;
 const WA_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.5 3.5A11.8 11.8 0 0012 0C5.5 0 .2 5.3.2 11.8c0 2.1.5 4.1 1.6 5.9L0 24l6.5-1.7a11.8 11.8 0 005.5 1.4c6.5 0 11.8-5.3 11.8-11.8 0-3.2-1.2-6.1-3.3-8.4zM12 21.7c-1.8 0-3.5-.5-5-1.4l-.4-.2-3.8 1 1-3.7-.2-.4a9.8 9.8 0 01-1.5-5.2C2.1 6.4 6.5 2 12 2c2.6 0 5.1 1 6.9 2.9a9.7 9.7 0 012.9 6.9c0 5.4-4.4 9.9-9.8 9.9zm5.4-7.3c-.3-.1-1.8-.9-2-1-.3-.1-.5-.1-.7.1-.2.3-.8 1-.9 1.2-.2.2-.3.2-.6.1-.3-.1-1.2-.5-2.4-1.5-.9-.8-1.5-1.8-1.6-2.1-.2-.3 0-.5.1-.6l.4-.5c.1-.2.2-.3.3-.5.1-.2 0-.4 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.1.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.3-.6-.4z"/></svg>';
 
 /* ---------- WhatsApp ---------- */
@@ -107,13 +119,14 @@ async function loadProducts(){
 }
 
 let ALL = [];
-let state = {q:'', category:'', machine:'', availability:'', page:1};
+let state = {q:'', category:'', brand:'', machine:'', availability:'', page:1};
 
 /* ---------- filtros ---------- */
 function filtered(){
   return ALL.filter(p =>
     matchesQuery(p, state.q) &&
     (!state.category || p.category === state.category) &&
+    (!state.brand || p.brand === state.brand) &&
     (!state.machine || machinesOf(p).includes(state.machine)) &&
     (!state.availability || p.availability === state.availability)
   );
@@ -122,6 +135,10 @@ function filtered(){
 function fillSelects(){
   const cat = $('category');
   CATEGORIES.forEach(c => cat.insertAdjacentHTML('beforeend', `<option value="${esc(c)}">${esc(c)}</option>`));
+  const brands = [...new Set(ALL.map(p => p.brand).filter(Boolean))].sort();
+  const br = $('brand');
+  brands.forEach(b => br.insertAdjacentHTML('beforeend', `<option value="${esc(b)}">${esc(b)}</option>`));
+  if(!brands.length) br.closest('div').hidden = true;
   const machines = [...new Set(ALL.flatMap(machinesOf))].sort();
   const mac = $('machine');
   machines.forEach(m => mac.insertAdjacentHTML('beforeend', `<option value="${esc(m)}">${esc(m)}</option>`));
@@ -135,6 +152,7 @@ function renderChips(){
   const active = [];
   if(state.q) active.push(['q', `Búsqueda: ${state.q}`]);
   if(state.category) active.push(['category', state.category]);
+  if(state.brand) active.push(['brand', state.brand]);
   if(state.machine) active.push(['machine', state.machine]);
   if(state.availability) active.push(['availability', AVAILABILITY_LABEL[state.availability]||state.availability]);
   $('chips').innerHTML = active.map(([k,label]) =>
@@ -144,20 +162,20 @@ function renderChips(){
 /* ---------- tarjetas ---------- */
 function cardHtml(p, i=0){
   const img = p.images[0];
-  const compatLine = p.compat.length
-    ? p.compat.map(c => esc([c.machine, c.engine].filter(Boolean).join(' · '))).join('<br>')
+  const app = applicationText(p);
+  const appLine = app
+    ? `${p.compat.length ? 'Aplicación registrada: ' : 'Modelos: '}${esc(app)}`
     : 'Compatibilidad por confirmar con número de serie.';
   return `<article class="product" data-tilt style="--i:${i}">
-    <a class="product-image" href="#/repuesto/${esc(p.slug)}" aria-label="Ver ficha de ${esc(p.name)}">
+    <a class="product-image" href="#/repuesto/${esc(p.slug)}" aria-label="Ver ficha de ${esc(p.name)}${p.code ? ' ' + esc(p.code) : ''}">
       <img src="${esc(img.src)}" alt="${esc(img.alt)}" width="${img.w}" height="${img.h}" loading="lazy" decoding="async">
-      <span class="watermark" aria-hidden="true">DGP</span>
       ${p.featured ? '<span class="ribbon">Destacado</span>' : ''}
     </a>
     <div class="product-body">
-      <div class="meta"><span>${esc(p.category)}</span>${p.compat.length ? `<span>${esc(p.compat[0].machine)}</span>` : ''}</div>
+      <div class="meta"><span>${esc(p.category)}</span>${p.brand ? `<span class="marca">${esc(p.brand)}</span>` : ''}</div>
       <h3><a href="#/repuesto/${esc(p.slug)}">${esc(p.name)}</a></h3>
       ${p.code ? `<div class="code">Código ${esc(p.code)}</div>` : ''}
-      <p>${p.compat.length ? 'Aplicación registrada:<br>' : ''}${compatLine}</p>
+      <p>${appLine}</p>
       <div class="tags">
         <span class="availability">${esc(AVAILABILITY_LABEL[p.availability]||p.availability)}</span>
         <span class="price">${esc(priceLabel(p))}</span>
@@ -256,6 +274,8 @@ function buildSuggestions(q){
     else if(normalize(p.name).includes(n)) out.push({kind:'product', type:'Repuesto', main:p.name, sub:p.code||p.category, slug:p.slug});
     else if(compact(haystack(p)).includes(c)) out.push({kind:'product', type:'Repuesto', main:p.name, sub:p.code||p.category, slug:p.slug});
   }
+  for(const b of [...new Set(ALL.map(p => p.brand).filter(Boolean))])
+    if(normalize(b).includes(n)) out.push({kind:'brand', type:'Marca', main:b, sub:'Ver repuestos de la marca', value:b});
   for(const m of [...new Set(ALL.flatMap(machinesOf))])
     if(normalize(m).includes(n) || compact(m).includes(c)) out.push({kind:'machine', type:'Máquina', main:m, sub:'Ver repuestos compatibles', value:m});
   for(const cat of CATEGORIES)
@@ -279,6 +299,8 @@ function attachSuggest(input, list){
     if(it.kind === 'product'){
       input.value = it.main; state.q = it.main; state.page = 1; $('search').value = it.main; render();
       location.hash = '#/repuesto/' + it.slug;
+    } else if(it.kind === 'brand'){
+      input.value = ''; state.q = ''; state.brand = it.value; state.page = 1; $('search').value=''; $('brand').value = it.value; render(); goCatalog();
     } else if(it.kind === 'machine'){
       input.value = ''; state.q = ''; state.machine = it.value; state.page = 1; $('search').value=''; $('machine').value = it.value; render(); goCatalog();
     } else {
@@ -307,12 +329,19 @@ function detailHtml(p){
   const img = p.images[0];
   const compatRows = p.compat.length
     ? p.compat.map(c => `<tr><th>Aplicación registrada</th><td>${esc([c.machine,c.engine].filter(Boolean).join(' · '))}</td></tr>`).join('')
-    : `<tr><th>Aplicación registrada</th><td>Pendiente de confirmar con el número de serie.</td></tr>`;
+    : (p.models ? '' : `<tr><th>Aplicación registrada</th><td>Pendiente de confirmar con el número de serie.</td></tr>`);
+  const infoRows = [
+    p.brand && `<tr><th>Marca</th><td>${esc(p.brand)}</td></tr>`,
+    p.models && `<tr><th>Modelos / aplicación</th><td>${esc(p.models)}</td></tr>`,
+    p.machineType && `<tr><th>Máquina</th><td>${esc(p.machineType)}</td></tr>`,
+    p.presentation && `<tr><th>Presentación</th><td>${esc(p.presentation)}</td></tr>`,
+    p.description && `<tr><th>Descripción</th><td>${esc(p.description)}</td></tr>`
+  ].filter(Boolean).join('');
   const specRows = (p.specs||[]).map(s => `<tr><th>${esc(s.k)}</th><td>${esc(s.v)}</td></tr>`).join('');
   const similar = ALL.filter(o => o.slug !== p.slug && (
       o.category === p.category ||
       o.compat.some(c => p.compat.some(d => c.machine && c.machine === d.machine))
-    ));
+    )).slice(0, 3);
   const thumbs = p.images.length > 1
     ? `<div class="thumbs">${p.images.map((im,i) =>
         `<button type="button" data-thumb="${i}" ${i===0?'aria-current="true"':''} aria-label="Ver fotografía ${i+1}">
@@ -330,14 +359,13 @@ function detailHtml(p){
     <div class="detail-grid">
       <div class="gallery">
         <button class="main" id="zoomBtn" aria-label="Ampliar fotografía de ${esc(p.name)}">
-          <img id="detailImg" src="${esc(img.src)}" alt="${esc(img.alt)}" width="${img.w}" height="${img.h}" decoding="async">
-          <span class="watermark" aria-hidden="true">DGP</span>
+          <img id="detailImg" src="${esc(img.full || img.src)}" alt="${esc(img.alt)}" width="${img.w}" height="${img.h}" decoding="async">
           <span class="zoomhint">Clic para ampliar</span>
         </button>
         ${thumbs}
       </div>
       <div class="detail-body">
-        <span class="eyebrow" style="color:var(--teal-dark)">${esc(p.category)}</span>
+        <span class="eyebrow" style="color:var(--teal-dark)">${esc(p.category)}${p.brand ? ` · ${esc(p.brand)}` : ''}</span>
         <h2 id="detailTitle">${esc(p.name)}</h2>
         ${p.code ? `<div class="code">Código ${esc(p.code)}</div>` : ''}
         <div class="detail-tools">
@@ -346,9 +374,10 @@ function detailHtml(p){
         </div>
         <table class="spec">
           <tbody>
-            <tr><th>Categoría</th><td>${esc(p.category)}</td></tr>
+            ${infoRows}
             ${compatRows}
             ${specRows}
+            <tr><th>Categoría</th><td>${esc(p.category)}</td></tr>
             <tr><th>Disponibilidad</th><td>${esc(AVAILABILITY_LABEL[p.availability]||p.availability)}</td></tr>
             <tr><th>Precio</th><td>${esc(priceLabel(p))}</td></tr>
           </tbody>
@@ -360,7 +389,7 @@ function detailHtml(p){
         </div>
       </div>
     </div>
-    ${similar.length ? `<div class="similar"><h3>Productos similares</h3><div class="products">${similar.slice(0,2).map((s,i)=>cardHtml(s,i)).join('')}</div></div>` : ''}
+    ${similar.length ? `<div class="similar"><h3>Productos similares</h3><div class="products">${similar.map((s,i)=>cardHtml(s,i)).join('')}</div></div>` : ''}
   </div>`;
 }
 
@@ -407,8 +436,9 @@ function setMeta(p){
     return;
   }
   const t = `${p.name}${p.code ? ` ${p.code}` : ''} | DOGEPARTS SAC`;
-  const compatTxt = p.compat.length ? ` Aplicación registrada: ${p.compat.map(c=>[c.machine,c.engine].filter(Boolean).join(' · ')).join('; ')}.` : '';
-  const d = `${p.name}${p.code ? `, código ${p.code}` : ''}.${compatTxt} Solicita precio y disponibilidad a DOGEPARTS SAC.`;
+  const app = applicationText(p);
+  const compatTxt = app ? ` ${p.compat.length ? 'Aplicación registrada' : 'Modelos'}: ${app}.` : '';
+  const d = `${p.name}${p.code ? `, código ${p.code}` : ''}${p.brand ? ` ${p.brand}` : ''}.${compatTxt} Solicita precio y disponibilidad a DOGEPARTS SAC.`;
   document.title = t;
   set('meta[name=description]', d);
   set('meta[property="og:title"]', t);
@@ -629,11 +659,13 @@ function injectStructuredData(){
 
   const list = {'@context':'https://schema.org','@type':'ItemList', name:'Catálogo DOGEPARTS', numberOfItems: ALL.length,
     itemListElement: ALL.map((p,i) => {
-      const item = {'@type':'Product', name:p.name, category:p.category, url: productUrl(p), image: abs(p.images[0].src),
-        description: `${p.name}${p.code ? `, código ${p.code}` : ''}. ${p.compat.length
-          ? 'Aplicación registrada: ' + p.compat.map(c=>[c.machine,c.engine].filter(Boolean).join(' · ')).join('; ') + '.'
+      const app = applicationText(p);
+      const item = {'@type':'Product', name:p.name, category:p.category, url: productUrl(p), image: abs(p.images[0].full || p.images[0].src),
+        description: `${p.name}${p.code ? `, código ${p.code}` : ''}. ${app
+          ? (p.compat.length ? 'Aplicación registrada: ' : 'Modelos: ') + app + '.'
           : 'Compatibilidad pendiente de confirmar mediante el número de serie del equipo.'} ${SERIAL_WARNING}`};
       if(p.code) item.sku = p.code;
+      if(p.brand) item.brand = {'@type':'Brand', name: p.brand};
       return {'@type':'ListItem', position:i+1, item};
     })};
 
@@ -764,7 +796,7 @@ $('heroForm').addEventListener('submit', e => {
 });
 
 $('search').addEventListener('input', e => { state.q = e.target.value; state.page = 1; render(); });
-['category','machine','availability'].forEach(id =>
+['category','brand','machine','availability'].forEach(id =>
   $(id).addEventListener('change', e => { state[id] = e.target.value; state.page = 1; render(); }));
 
 $('chips').addEventListener('click', e => {
@@ -812,7 +844,7 @@ document.addEventListener('click', e => {
     const p = currentProduct();
     if(p){
       const i = Number(t.dataset.thumb); $('detail').dataset.img = i;
-      const im = p.images[i]; $('detailImg').src = im.src; $('detailImg').alt = im.alt;
+      const im = p.images[i]; $('detailImg').src = im.full || im.src; $('detailImg').alt = im.alt;
       document.querySelectorAll('[data-thumb]').forEach(x => x.removeAttribute('aria-current'));
       t.setAttribute('aria-current','true');
     }
