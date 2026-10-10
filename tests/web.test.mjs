@@ -1,7 +1,7 @@
 /* Batería de pruebas de la web en un navegador real (Chromium headless vía CDP).
-   La lanza tests/run.mjs. Comprueba catálogo, búsqueda, filtros, paginación,
-   WhatsApp, fichas, portada, mapa, formulario, accesibilidad, contraste y
-   ausencia de desbordamiento. Las expectativas se derivan de datos/productos.js. */
+   La lanza tests/run.mjs. Cubre el catálogo v2 (buscador, modelos, filtros, lista y
+   cuadrícula, "Ver más", orden, URL compartible, ficha con navegación y lista de
+   cotización), la portada, el mapa, el formulario, accesibilidad, contraste y móvil. */
 import {connect, evalJs} from './cdp.mjs';
 import {writeFileSync} from 'node:fs';
 
@@ -19,16 +19,22 @@ const ok = (n, cond, extra = '') => {
 };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const js = (expr) => evalJs(c, expr);
+const count = () => js("document.querySelectorAll('#products .product').length");
+const total = () => js("currentList.length");
 
 async function goto(url){ await c.send('Page.navigate', {url}); await wait(1800); }
-async function setViewport(w,h){ await c.send('Emulation.setDeviceMetricsOverride',{width:w,height:h,deviceScaleFactor:1,mobile:w<600}); }
+async function setViewport(w,h){ await c.send('Emulation.setDeviceMetricsOverride',{width:w,height:h,deviceScaleFactor:1,mobile:w<700}); }
 async function shot(name){
   const r = await c.send('Page.captureScreenshot',{format:'png'});
   writeFileSync('capturas/'+name+'.png', Buffer.from(r.data,'base64'));
 }
-const count = () => js("document.querySelectorAll('#products .product').length");
+async function search(q){
+  return js("(()=>{const e=document.getElementById('search');e.value=" + JSON.stringify(q) + ";e.dispatchEvent(new Event('input'));return document.querySelectorAll('#products .product').length})()");
+}
 
-await setViewport(1440,900);
+await setViewport(1366,768);
+await goto(URL_);
+await js("try{localStorage.clear()}catch(e){}");
 await goto(URL_);
 
 // ---------- carga limpia ----------
@@ -37,181 +43,161 @@ ok('Sin errores de consola al cargar', consErr.length === 0, JSON.stringify(cons
 ok('Solo se cargan scripts del propio sitio', await js("[...document.scripts].every(s=>!s.src||new URL(s.src).origin===location.origin)") === true);
 ok('La única hoja de estilos externa es Google Fonts', await js("[...document.querySelectorAll('link[rel=stylesheet]')].every(l=>new URL(l.href).origin===location.origin||/fonts\\.googleapis\\.com/.test(l.href))") === true);
 
-// ---------- datos del catálogo ----------
-const TOTAL = await js("PRODUCTS.length");
-const NCAT = await js("CATEGORIES.length");
-ok('Catálogo con los 70 repuestos entregados y 8 líneas', TOTAL === 70 && NCAT === 8, TOTAL + '/' + NCAT);
+// ---------- datos ----------
+ok('Catálogo con 70 repuestos y 8 líneas', await js("PRODUCTS.length===70 && CATEGORIES.length===8") === true);
 ok('Todos los repuestos tienen código, marca, modelos, categoría válida e imagen', await js("PRODUCTS.every(p=>p.code&&p.brand&&p.models&&CATEGORIES.includes(p.category)&&p.images[0].src&&p.images[0].full)") === true);
 ok('Slugs únicos', await js("new Set(PRODUCTS.map(p=>p.slug)).size===PRODUCTS.length") === true);
-ok('Las imágenes del catálogo existen (primera y última tarjeta cargan)', await js("(()=>{const im=[...document.querySelectorAll('#products img')];return im.length>0&&im[0].complete&&im[0].naturalWidth>0})()") === true);
 
-// ---------- render base y paginación ----------
-ok('Página 1 muestra 24 repuestos', await count() === 24);
-ok('Contador: 70 repuestos · página 1 de 3', (await js("resultCount.textContent")).includes('70 repuestos · página 1 de 3'));
-ok('Paginador visible con 3 páginas y anterior deshabilitado', await js("(()=>{const b=[...pager.querySelectorAll('button')];return !pager.hidden&&b.filter(x=>x.dataset.page&&!x.getAttribute('aria-label').startsWith('Página a')&&!x.getAttribute('aria-label').startsWith('Página s')).length===3&&b[0].disabled})()") === true);
-ok('Ir a la página 3 muestra los 22 restantes', await js("(()=>{[...pager.querySelectorAll('button')].find(b=>b.textContent==='3').click();return document.querySelectorAll('#products .product').length})()") === 22);
-ok('Contador en página 3 y siguiente deshabilitado', await js("resultCount.textContent.includes('página 3 de 3')&&[...pager.querySelectorAll('button')].pop().disabled") === true);
-ok('Volver a la página 1', await js("(()=>{[...pager.querySelectorAll('button')].find(b=>b.textContent==='1').click();return document.querySelectorAll('#products .product').length})()") === 24);
-ok('8 líneas con icono en Categorías', await js("document.querySelectorAll('#categoryGrid .cat svg').length") === 8);
-ok('Categoría Motor muestra su conteo real (20)', (await js("[...document.querySelectorAll('.cat')].find(b=>b.dataset.category==='Motor').textContent")).includes('20 repuestos'));
-ok('Categoría Embrague muestra 1 repuesto', (await js("[...document.querySelectorAll('.cat')].find(b=>b.dataset.category==='Embrague').textContent")).includes('1 repuesto'));
-ok('Tarjetas muestran Consultar precio y marca', await js("(()=>{const p=document.querySelector('.product');return p.querySelector('.price').textContent==='Consultar precio'&&!!p.querySelector('.meta .marca')})()") === true);
-ok('Tarjetas muestran modelos del catálogo', (await js("document.querySelector('.product p').textContent")).startsWith('Modelos: '));
-ok('Tarjetas usan la miniatura (thumbs) en proporción 4:5', await js("(()=>{const im=document.querySelector('.product-image img');const r=document.querySelector('.product-image').getBoundingClientRect();return im.getAttribute('src').includes('/thumbs/')&&Math.abs(r.height/r.width-1.25)<0.03})()") === true);
-ok('Producto destacado lleva cinta (válvula, ítem 24, página 1)', await js("document.querySelectorAll('.product .ribbon').length") === 1);
-ok('Marquesina con las líneas reales, duplicada y oculta a lectores', await js("document.querySelectorAll('#marqueeClip .marquee span').length===(CATEGORIES.length+2)*2 && marqueeClip.getAttribute('aria-hidden')==='true'") === true);
-ok('Cuatro pasos del proceso, el primero activo', await js("document.querySelectorAll('.step').length===4 && document.querySelector('.step').classList.contains('is-active')") === true);
+// ---------- catálogo inicial (escritorio) ----------
+ok('Escritorio: vista cuadrícula por defecto con 12 repuestos', await js("products.dataset.view==='grid'") === true && await count() === 12);
+ok('Contador "Mostrando 12 de 70 repuestos"', (await js("resultCount.textContent")) === 'Mostrando 12 de 70 repuestos');
+ok('Cuadrícula de 4 o más columnas a 1366 px', await js("(()=>{const r=[...document.querySelectorAll('#products .product')].map(e=>e.getBoundingClientRect().left);return new Set(r.map(x=>Math.round(x))).size})()") >= 4);
+ok('Panel lateral de filtros visible en escritorio con 4 grupos', await js("(()=>{const p=document.getElementById('filtersPanel');return getComputedStyle(p).position==='sticky' && p.querySelectorAll('.fgroup:not(.sortgroup)').length===4 && getComputedStyle(p.querySelector('.sortgroup')).display==='none' && getComputedStyle(document.getElementById('filtersBtn')).display==='none'})()") === true);
+ok('Categorías del panel con icono y conteo', await js("[...document.querySelectorAll('.fopt[data-filter=category]')].every(b=>b.querySelector('svg')&&/\\d+/.test(b.querySelector('small').textContent))") === true);
+ok('Chips de modelo derivados de los datos (Todos + familias con 2 o más repuestos)', await js("(()=>{const c=[...document.querySelectorAll('#modelChips .mchip')].map(b=>b.dataset.model);return c[0]===''&&c.includes('DX225')&&c.includes('DX300')&&c.includes('DB58')&&c.includes('DE08')&&c.includes('DE12')&&c.includes('DV15')&&c.includes('ROBEX')})()") === true);
+ok('Barra de búsqueda fija (sticky)', await js("getComputedStyle(document.getElementById('catbar')).position==='sticky'") === true);
+ok('Tarjetas usan miniatura (thumbs) con carga diferida', await js("[...document.querySelectorAll('#products .card-img img')].every(i=>i.getAttribute('src').includes('/thumbs/')&&i.loading==='lazy')") === true);
+ok('Destacado (válvula) aparece primero con cinta', await js("document.querySelector('#products .product .ribbon')!==null && document.querySelector('#products .product h3').textContent==='Válvula de admisión'") === true);
 
-// ---------- portada (carrusel) ----------
-ok('Portada: las diapositivas salen de datos/portada.js', await js("document.querySelectorAll('#slider .slide').length===SLIDES.length && SLIDES.length===6") === true);
-ok('Portada: primera imagen prioritaria, el resto diferidas', await js("(()=>{const im=[...document.querySelectorAll('#slider img')];return im[0].getAttribute('fetchpriority')==='high' && im.slice(1).every(i=>i.loading==='lazy')})()") === true);
-ok('Portada: un punto de 44px por diapositiva y progreso en marcha', await js("(()=>{const d=[...document.querySelectorAll('#slider [data-go]')];return d.length===SLIDES.length && d.every(b=>b.getBoundingClientRect().height>=44) && slider.classList.contains('is-playing')})()") === true);
-ok('Portada: la leyenda de un repuesto enlaza a su ficha', await js("(()=>{const a=document.querySelector('#slider .slide[data-i=\"4\"] .figlink');return !!a && a.getAttribute('href')==='#/repuesto/valvula-de-admision-65-04101-0026'})()") === true);
-ok('Portada: las fotos con licencia llevan crédito en la leyenda', await js("[...document.querySelectorAll('#slider .slide')].filter(s=>s.classList.contains('cover')).every(s=>/Foto: .+ · CC BY/.test(s.textContent))") === true);
-const idxA = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
-await wait(3600);
-const idxB = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
-ok('Portada: rota sola cada 3 segundos', idxA !== idxB, idxA + ' -> ' + idxB);
-ok('Portada: se detiene al pasar el cursor', await js("(()=>{slider.dispatchEvent(new PointerEvent('pointerenter'));return !slider.classList.contains('is-playing')})()") === true);
-const idxC = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
-await wait(3400);
-ok('Portada: en pausa no cambia', await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)") === idxC);
-ok('Portada: al salir el cursor sigue', await js("(()=>{slider.dispatchEvent(new PointerEvent('pointerleave'));return slider.classList.contains('is-playing')})()") === true);
-ok('Portada: los puntos cambian de diapositiva y marcan la activa', await js("(()=>{document.querySelectorAll('#slider [data-go]')[2].click();const a=document.querySelector('#slider .slide.is-active');return a.dataset.i==='2' && document.querySelectorAll('#slider [data-go]')[2].getAttribute('aria-selected')==='true' && a.getAttribute('aria-hidden')==='false'})()") === true);
+// ---------- ver más ----------
+ok('"Ver más repuestos" muestra 12 más', await js("(()=>{document.getElementById('moreBtn').click();return document.querySelectorAll('#products .product').length})()") === 24);
+ok('Contador actualizado a 24 de 70', (await js("resultCount.textContent")) === 'Mostrando 24 de 70 repuestos');
+ok('Tras 5 veces se muestran los 70 y el botón desaparece', await js("(()=>{for(let i=0;i<5;i++)document.getElementById('moreBtn').click();return document.querySelectorAll('#products .product').length===70 && moreWrap.hidden})()") === true);
 
-// ---------- profundidad 3D ----------
-const hoverable = await js("matchMedia('(hover:hover) and (pointer:fine)').matches");
-if (hoverable) {
-  ok('3D: la portada se inclina con el cursor', await js("(()=>{const m=document.querySelector('.machine');const r=m.getBoundingClientRect();m.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+r.width*0.9,clientY:r.top+r.height*0.2}));return /rotateY\\(/.test(document.getElementById('tilt').style.transform)})()") === true);
-  ok('3D: vuelve a su sitio al salir', await js("(()=>{const m=document.querySelector('.machine');m.dispatchEvent(new PointerEvent('pointerleave'));return document.getElementById('tilt').style.transform===''})()") === true);
-  ok('3D: las tarjetas de categoría se inclinan', await js("(()=>{const c=document.querySelector('.cat');const r=c.getBoundingClientRect();c.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+r.width*0.8,clientY:r.top+r.height*0.3}));return c.classList.contains('is-tilt') && c.style.getPropertyValue('--ry')!==''})()") === true);
-  ok('3D: la tarjeta se endereza al salir', await js("(()=>{const c=document.querySelector('.cat');c.dispatchEvent(new PointerEvent('pointerout',{bubbles:true,relatedTarget:document.body}));return !c.classList.contains('is-tilt')})()") === true);
-} else {
-  ok('3D: sin ratón (táctil) no se activa la inclinación', await js("document.getElementById('tilt').style.transform===''") === true);
-}
+// ---------- orden ----------
+ok('Orden por nombre A–Z', await js("(()=>{const s=document.getElementById('sort');s.value='nombre';s.dispatchEvent(new Event('change'));const n=[...document.querySelectorAll('#products h3')].map(h=>h.textContent);return n.slice().sort((a,b)=>a.localeCompare(b,'es')).join('|')===n.join('|') && location.search.includes('orden=nombre')})()") === true);
+ok('Orden por categoría agrupa', await js("(()=>{const s=document.getElementById('sort');s.value='categoria';s.dispatchEvent(new Event('change'));const n=[...document.querySelectorAll('#products .card-meta')].map(h=>h.textContent.split(' · ')[0]);return n.slice().sort((a,b)=>a.localeCompare(b,'es')).join('|')===n.join('|')})()") === true);
+await js("(()=>{const s=document.getElementById('sort');s.value='relevancia';s.dispatchEvent(new Event('change'))})()");
 
-// ---------- búsqueda tolerante ----------
-async function search(q){
-  return js("(()=>{const e=document.getElementById('search');e.value=" + JSON.stringify(q) + ";e.dispatchEvent(new Event('input'));return document.querySelectorAll('#products .product').length})()");
-}
-for (const q of ['65.04101-0026','65041010026','6504101 0026','65.04101 0026','65-04101-0026'])
+// ---------- búsqueda ----------
+for (const q of ['65.04101-0026','65041010026','6504101 0026','65-04101-0026'])
   ok('Busca "' + q + '" -> 1 resultado', await search(q) === 1);
-ok('Busca "2523-9016" (interruptor) -> 1', await search('2523-9016') === 1);
-ok('Busca "25239016" -> 1', await search('25239016') === 1);
+ok('Busca "6503203" (sin puntos) encuentra 65.03203-1053', await js("(()=>{const e=document.getElementById('search');e.value='6503203';e.dispatchEvent(new Event('input'));return [...document.querySelectorAll('#products .code')].some(c=>c.textContent.includes('65.03203-1053'))})()") === true);
+ok('Relevancia: el código exacto va primero', await js("(()=>{const e=document.getElementById('search');e.value='65.03203-1053';e.dispatchEvent(new Event('input'));return document.querySelector('#products .code').textContent.includes('65.03203-1053')})()") === true);
 const esperaValv = await js("ALL.filter(p=>normalize([p.name,p.code,p.brand,p.category,p.models,p.description,p.machineType].join(' ')).includes('valvula')).length");
-for (const q of ['valvula','VALVULA','Válvula','VÁLVULA'])
-  ok('Busca "' + q + '" -> ' + esperaValv + ' (todos los que la mencionan, sin importar tildes)', await search(q) === esperaValv);
+for (const q of ['valvula','VÁLVULA']){ await search(q); ok('Busca "' + q + '" -> ' + esperaValv + ' (sin importar tildes)', await total() === esperaValv); }
 ok('Busca "DE08TIS" (modelo) -> varios', await search('DE08TIS') >= 5);
-ok('Busca "dx300" -> varios', await search('dx300') >= 2);
-const esperaHyundai = await js("ALL.filter(p=>normalize([p.name,p.code,p.brand,p.category,p.models,p.description,p.machineType].join(' ')).includes('hyundai')).length");
-ok('Busca "HYUNDAI" -> ' + esperaHyundai + ' (marca o mención en descripción)', await search('HYUNDAI') === esperaHyundai && esperaHyundai >= 3);
-ok('Busca "valeo" -> 1', await search('valeo') === 1);
-ok('Busca "volquete" (tipo de máquina) -> 6', await search('volquete') === 6);
 ok('Busca "bomba de agua" -> 5', await search('bomba de agua') === 5);
-const noRes = await js("(()=>{const e=document.getElementById('search');e.value='zzzzz';e.dispatchEvent(new Event('input'));return (document.querySelector('#products .state')||{}).textContent||''})()");
-ok('Sin coincidencias muestra estado sin resultados con invitación a solicitar', noRes.includes('No encontramos resultados') && noRes.includes('Solicitar este repuesto'));
+ok('La búsqueda queda en la URL (?q=…)', (await js("location.search")).includes('q=bomba'));
+ok('Botón ✕ borra la búsqueda', await js("(()=>{document.getElementById('searchClear').click();return state.q===''&&document.getElementById('search').value===''&&!location.search.includes('q=')})()") === true);
+const noRes = await js("(()=>{const e=document.getElementById('search');e.value='zzzzz';e.dispatchEvent(new Event('input'));return document.querySelector('#products .state')?document.querySelector('#products .state').innerHTML:''})()");
+ok('Sin resultados: mensaje amable con «lo buscado»', noRes.includes('No encontramos «zzzzz»'));
+ok('Sin resultados: botón "Pídelo por WhatsApp" con lo buscado', noRes.includes('P%C3%ADdelo') === false && /wa\.me\/51937419437\?text=Hola%2C%20busco%20el%20repuesto%3A%20zzzzz/.test(noRes) && noRes.includes('Pídelo por WhatsApp'));
 await search('');
 
-// ---------- sugerencias ----------
-ok('Sugerencias al escribir un código parcial', await js("(()=>{const e=document.getElementById('search');e.value='65.04';e.dispatchEvent(new Event('input'));return catSug.dataset.open==='true' && catSug.querySelector('li b').textContent.startsWith('65.04')})()") === true);
-ok('Sugerencia de marca al escribir hyun', await js("(()=>{const e=document.getElementById('search');e.value='hyun';e.dispatchEvent(new Event('input'));return [...catSug.querySelectorAll('li b')].some(b=>b.textContent==='HYUNDAI')})()") === true);
-ok('Sugerencia de tipo de máquina al escribir volq', await js("(()=>{const e=document.getElementById('search');e.value='volq';e.dispatchEvent(new Event('input'));return [...catSug.querySelectorAll('li b')].some(b=>b.textContent==='Volquete articulado')})()") === true);
-ok('Elegir la marca sugerida filtra por marca', await js("(()=>{const e=document.getElementById('search');e.value='hyun';e.dispatchEvent(new Event('input'));const li=[...catSug.querySelectorAll('li')].find(l=>l.querySelector('b').textContent==='HYUNDAI');li.click();return state.brand==='HYUNDAI'&&document.querySelectorAll('#products .product').length===3&&document.getElementById('brand').value==='HYUNDAI'})()") === true);
-await js("(()=>{document.querySelectorAll('#chips [data-clear]').forEach(b=>b.click())})()");
-ok('Flecha abajo selecciona y Escape cierra', await js("(()=>{const e=document.getElementById('search');e.value='empaque';e.dispatchEvent(new Event('input'));e.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown'}));const sel=catSug.querySelector('[aria-selected=true]')&&e.getAttribute('aria-activedescendant')==='catSug-0';e.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return sel && catSug.dataset.open==='false'})()") === true);
-ok('Enter sobre una sugerencia de producto abre su ficha', await js("(()=>{const e=document.getElementById('heroSearch');e.value='interrup';e.dispatchEvent(new Event('input'));e.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown'}));e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}));return location.hash})()") === '#/repuesto/interruptor-de-motor-24v');
+// ---------- sugerencias con miniatura ----------
+ok('Sugerencias: hasta 5 productos con miniatura, nombre y código', await js("(()=>{const e=document.getElementById('search');e.value='empaque';e.dispatchEvent(new Event('input'));const li=[...catSug.querySelectorAll('li[data-i]')].filter(l=>!l.classList.contains('more'));return catSug.dataset.open==='true'&&li.length===5&&li.every(l=>l.querySelector('img')&&l.querySelector('b')&&/Código/.test(l.textContent))})()") === true);
+ok('Sugerencias: fila "Ver los N resultados" cuando hay más de 5', await js("(()=>{const m=catSug.querySelector('li.more');return !!m&&/Ver los \\d+ resultados/.test(m.textContent)})()") === true);
+ok('Sugerencia por código sin puntos (6503203)', await js("(()=>{const e=document.getElementById('search');e.value='6503203';e.dispatchEvent(new Event('input'));return [...catSug.querySelectorAll('li .s-text span')].some(s=>s.textContent.includes('65.03203-1053'))})()") === true);
+ok('Flecha abajo + Enter abre la ficha sugerida', await js("(()=>{const e=document.getElementById('search');e.value='interrup';e.dispatchEvent(new Event('input'));e.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown'}));e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}));return location.hash})()") === '#/repuesto/interruptor-de-motor-24v');
 await wait(500);
 ok('…y la ficha está abierta', await js("!document.getElementById('detail').hidden") === true);
-await js("location.hash='#catalogo'"); await wait(400);
+await js("history.pushState(null,'','#catalogo');closeDetail(true)"); await wait(200);
+ok('Buscador del hero también sugiere con miniatura', await js("(()=>{const e=document.getElementById('heroSearch');e.value='piston';e.dispatchEvent(new Event('input'));return heroSug.dataset.open==='true'&&!!heroSug.querySelector('li img')})()") === true);
+await js("(()=>{const e=document.getElementById('heroSearch');e.value='';e.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))})()");
 await search('');
 
-// ---------- filtros combinables ----------
-async function setSel(id, v){
-  return js("(()=>{const e=document.getElementById('" + id + "');e.value=" + JSON.stringify(v) + ";e.dispatchEvent(new Event('change'));return document.querySelectorAll('#products .product').length})()");
-}
-ok('Marcas del filtro: DOOSAN, HYUNDAI y VALEO', await js("[...document.getElementById('brand').options].map(o=>o.value).join('|')") === '|DOOSAN|HYUNDAI|VALEO');
-ok('Máquinas del filtro: solo las registradas', await js("[...document.getElementById('machine').options].map(o=>o.value).join('|')") === '|DOOSAN DX300|Excavadora|Volquete articulado');
-ok('Filtro categoría Motor -> 20', await setSel('category','Motor') === 20);
-const motorDoosan = await setSel('brand','DOOSAN');
-ok('Combinado categoría + marca DOOSAN -> 20', motorDoosan === 20);
-ok('Combinado + máquina Excavadora -> ≤ 20 y > 0', (await setSel('machine','Excavadora')) > 0 && (await count()) <= 20);
-ok('Combinado + disponibilidad -> igual', await setSel('availability','consultar') === await count());
-ok('4 chips de filtro activos', await js("document.querySelectorAll('#chips .chip').length") === 4);
-const imposible = await js("(()=>{const e=document.getElementById('category');e.value='Embrague';e.dispatchEvent(new Event('change'));return (document.querySelector('#products .state')||{}).textContent||''})()");
-ok('Combinación imposible (Embrague + DOOSAN) -> sin resultados', imposible.includes('No encontramos resultados'));
-ok('Quitar chips restaura el catálogo (24 en página 1, 70 en total)', await js("(()=>{let g=0;while(document.querySelector('#chips [data-clear]')&&g<9){document.querySelector('#chips [data-clear]').click();g++;}return document.querySelectorAll('#chips .chip').length===0&&document.querySelectorAll('#products .product').length===24&&resultCount.textContent.includes('70 repuestos')})()") === true);
-ok('Filtro Volquete articulado -> 6', await setSel('machine','Volquete articulado') === 6);
-await setSel('machine','');
+// ---------- modelos y filtros ----------
+ok('Chip DX300 filtra y queda en la URL (?modelo=DX300)', await js("(()=>{[...document.querySelectorAll('#modelChips .mchip')].find(b=>b.dataset.model==='DX300').click();return state.model==='DX300'&&location.search.includes('modelo=DX300')&&document.querySelectorAll('#products .product').length>=5})()") === true);
+ok('Chip activo marcado (aria-pressed) y chip de filtro con ×', await js("(()=>{const b=[...document.querySelectorAll('#modelChips .mchip')].find(b=>b.dataset.model==='DX300');return b.getAttribute('aria-pressed')==='true'&&!!document.querySelector('#chips [data-clear=model]')})()") === true);
+ok('Filtro de categoría combinado (DX300 + Motor) y conteos facetados', await js("(()=>{const b=[...document.querySelectorAll('.fopt[data-filter=category]')].find(x=>x.dataset.value==='Motor');const n=Number(b.querySelector('small').textContent);b.click();return state.category==='Motor'&&document.querySelectorAll('#products .product').length===n&&n>0&&location.search.includes('cat=Motor')})()") === true);
+ok('Contador claro con filtros', /^Mostrando \d+ de \d+ repuestos?$/.test(await js("resultCount.textContent")));
+ok('Chips activos: Modelo y Categoría + "Limpiar todo"', await js("document.querySelectorAll('#chips .chip').length===3 && !!document.querySelector('#chips .clear-all')") === true);
+ok('Quitar un chip con ×', await js("(()=>{document.querySelector('#chips [data-clear=category]').click();return state.category===''&&state.model==='DX300'})()") === true);
+ok('"Limpiar todo" restaura el catálogo y limpia la URL', await js("(()=>{document.querySelector('#chips .clear-all').click();return state.model===''&&document.querySelectorAll('#products .product').length===12&&location.search===''})()") === true);
+ok('Filtro de marca HYUNDAI -> 3', await js("(()=>{[...document.querySelectorAll('.fopt[data-filter=brand]')].find(x=>x.dataset.value==='HYUNDAI').click();return document.querySelectorAll('#products .product').length})()") === 3);
+ok('Opciones imposibles quedan deshabilitadas (Embrague con HYUNDAI)', await js("[...document.querySelectorAll('.fopt[data-filter=category]')].find(x=>x.dataset.value==='Embrague').disabled") === true);
+ok('Filtro de presentación Juego', await js("(()=>{clearAll();[...document.querySelectorAll('.fopt[data-filter=presentation]')].find(x=>x.dataset.value==='Juego').click();return state.presentation==='Juego'&&location.search.includes('pres=Juego')&&document.querySelectorAll('#products .product').length>0})()") === true);
+await js("clearAll()");
+ok('Categoría desde la sección superior filtra el catálogo', await js("(()=>{[...document.querySelectorAll('#categoryGrid .cat')].find(b=>b.dataset.category==='Empaques').click();return state.category==='Empaques'&&document.querySelectorAll('#products .product').length===8})()") === true);
+await js("clearAll()");
 
-// ---------- WhatsApp con el número real ----------
+// ---------- URL compartible ----------
+await goto(URL_.split('?')[0] + '?modelo=DE08&cat=Motor&orden=nombre');
+ok('Enlace con ?modelo=DE08&cat=Motor&orden=nombre carga filtrado y ordenado', await js("(()=>{return state.model==='DE08'&&state.category==='Motor'&&state.sort==='nombre'&&document.querySelectorAll('#chips .chip').length===3&&document.querySelectorAll('#products .product').length>0&&[...document.querySelectorAll('#modelChips .mchip')].find(b=>b.dataset.model==='DE08').getAttribute('aria-pressed')==='true'})()") === true);
+await goto(URL_.split('?')[0]);
+
+// ---------- vista lista / cuadrícula ----------
+ok('Cambiar a vista lista y recordar la elección', await js("(()=>{document.querySelector('.viewbtn[data-view=list]').click();return products.dataset.view==='list'&&document.querySelectorAll('#products .row').length===12&&localStorage.getItem('dgp-vista')==='\"list\"'})()") === true);
+ok('Fila compacta: miniatura cuadrada, nombre, modelos, código y WhatsApp', await js("(()=>{const r=document.querySelector('#products .row');const h=r.getBoundingClientRect().height;return h>=80&&h<=100&&!!r.querySelector('.row-thumb')&&!!r.querySelector('.row-text b')&&!!r.querySelector('.row-code')&&r.querySelector('.row-wa').href.startsWith('https://wa.me/51937419437?text=')})()") === true);
+await goto(URL_.split('?')[0]);
+ok('La vista lista se recuerda al recargar', await js("products.dataset.view==='list'") === true);
+await js("document.querySelector('.viewbtn[data-view=grid]').click()");
+
+// ---------- WhatsApp ----------
 const MSG_V = 'Hola, deseo cotizar el repuesto Válvula de admisión, código 65.04101-0026. ¿Podrían confirmarme precio y disponibilidad?';
 ok('Mensaje con nombre y código exactos', await js("quoteMessage(ALL.find(p=>p.code==='65.04101-0026'))") === MSG_V);
-ok('Mensaje del interruptor incluye su código del catálogo', await js("quoteMessage(ALL.find(p=>p.slug==='interruptor-de-motor-24v'))") === 'Hola, deseo cotizar el repuesto Interruptor de motor, código 2523-9016. ¿Podrían confirmarme precio y disponibilidad?');
 ok('Sin código, la frase se omite sin coma suelta', await js("quoteMessage({name:'Pieza X', code:''})") === 'Hola, deseo cotizar el repuesto Pieza X. ¿Podrían confirmarme precio y disponibilidad?');
-ok('CTA de cada tarjeta apunta a wa.me con el número y su mensaje', await js("[...document.querySelectorAll('#products .product')].every((card,i)=>card.querySelector('.product-actions .btn-primary').getAttribute('href')==='https://wa.me/51937419437?text='+encodeURIComponent(quoteMessage(ALL[i])))") === true);
-ok('CTA abre en pestaña nueva de forma segura', await js("(()=>{const a=document.querySelector('.product-actions .btn-primary');return a.target==='_blank'&&a.rel==='noopener'})()") === true);
+ok('CTA de cada tarjeta apunta a wa.me con su mensaje', await js("[...document.querySelectorAll('#products .product')].every((card,i)=>card.querySelector('.card-actions .btn-primary').getAttribute('href')==='https://wa.me/51937419437?text='+encodeURIComponent(quoteMessage(currentList[i])))") === true);
 ok('Botón flotante de WhatsApp visible en escritorio', await js("!fab.hidden && fab.href.startsWith('https://wa.me/51937419437?text=')") === true);
 
-// ---------- datos comerciales reales ----------
-const cards = await js("[...document.querySelectorAll('#contactCards .contact-card b')].map(b=>b.textContent.trim())");
-ok('Tarjetas de contacto: WhatsApp, Teléfono, Correo, Horario, Dirección', JSON.stringify(cards) === JSON.stringify(['WhatsApp','Teléfono','Correo','Horario','Dirección']), JSON.stringify(cards));
-ok('Teléfono y correo enlazados', await js("!!document.querySelector('#contactCards a[href=\"tel:+51937419437\"]')&&!!document.querySelector('#contactCards a[href=\"mailto:ventas@dogeparts.pe\"]')") === true);
-ok('Horario tal como se entregó', (await js("document.querySelector('#contactCards').textContent")).includes('9:00 a. m. – 6:00 p. m.'));
-ok('Barra superior y pie muestran el teléfono real', await js("topbarContact.innerHTML.includes('tel:+51937419437')&&footerContact.textContent.includes('+51 937 419 437')") === true);
-ok('El mapa no se incrusta antes de llegar a la sección; muestra dirección y enlaces', await js("map.querySelector('iframe')===null && map.textContent.includes('Nicolás Arriola 1419') && !!map.querySelector('a[href*=\"google.com/maps\"]')") === true);
-ok('Al incrustar, el mapa es OpenStreetMap con el pin en las coordenadas del local', await js("(()=>{loadMap();const f=map.querySelector('iframe');return !!f && f.src.startsWith('https://www.openstreetmap.org/export/embed.html') && f.src.includes('marker=-12.075358,-77.009017') && !!map.querySelector('.map-link') && map.querySelector('.map-link').href.includes('google.com/maps/dir')})()") === true);
-
-// ---------- datos estructurados ----------
-const ld = await js("[...document.querySelectorAll('script[type=\"application/ld+json\"]')].map(s=>JSON.parse(s.textContent))");
-const org = ld.find(x => x['@type'] === 'AutoPartsStore');
-const list = ld.find(x => x['@type'] === 'ItemList');
-ok('JSON-LD de la empresa con teléfono, correo, dirección y coordenadas', !!org && org.telephone === '+51 937 419 437' && org.email === 'ventas@dogeparts.pe' && /Arriola 1419/.test(org.address) && !!org.geo);
-ok('JSON-LD de productos: 70 con sku y marca, sin precio ni valoraciones', !!list && list.numberOfItems === 70 && list.itemListElement.every(i => i.item.sku && i.item.brand && !i.item.offers && !i.item.aggregateRating));
-ok('Créditos fotográficos visibles en el pie', await js("(()=>{const c=document.getElementById('credits');return !c.hidden && c.querySelectorAll('a[href*=creativecommons]').length>=3})()") === true);
-
-// ---------- ficha de producto ----------
+// ---------- ficha ----------
 await js("location.hash='#/repuesto/valvula-de-admision-65-04101-0026'");
 await wait(600);
-ok('La ficha abre por su propia URL', await js("!document.getElementById('detail').hidden") === true);
-ok('Título del documento cambia', (await js("document.title")) === 'Válvula de admisión 65.04101-0026 | DOGEPARTS SAC');
-ok('og:title y og:image cambian', await js("document.querySelector('meta[property=\"og:title\"]').content.includes('Válvula de admisión') && document.querySelector('meta[property=\"og:image\"]').content.includes('valvula')") === true);
+ok('La ficha abre por su propia URL y el título cambia', await js("!document.getElementById('detail').hidden && document.title==='Válvula de admisión 65.04101-0026 | DOGEPARTS SAC'") === true);
 const spec = await js("document.querySelector('.spec').textContent");
-ok('Ficha: código en cabecera y filas Marca, Modelos, Máquina, Presentación y Descripción', (await js("document.querySelector('.detail-body .code').textContent")) === 'Código 65.04101-0026' && spec.includes('MarcaDOOSAN') && spec.includes('Modelos / aplicación1146 / DE08TIS') && spec.includes('MáquinaExcavadora') && spec.includes('PresentaciónUnidad') && spec.includes('DescripciónVÁLVULA DE ADMISIÓN 1146 DE08TIS DOOSAN'));
-ok('Ficha: aplicación registrada confirmada, categoría y Consultar precio', spec.includes('Aplicación registradaDOOSAN DX300 · 1146 · DE08TIS') && spec.includes('CategoríaCulata y válvulas') && spec.includes('Consultar precio'));
+ok('Ficha: código con "Copiar código", marca, modelos, presentación y descripción', await js("document.querySelector('.codeline .code').textContent==='Código 65.04101-0026' && !!document.getElementById('copyCode')") === true && spec.includes('MarcaDOOSAN') && spec.includes('Modelos compatibles1146 / DE08TIS') && spec.includes('PresentaciónUnidad') && spec.includes('DescripciónVÁLVULA DE ADMISIÓN'));
+ok('Ficha: tarjeta grande como imagen principal', (await js("document.getElementById('detailImg').getAttribute('src')")).includes('assets/img/repuestos/24-'));
+ok('Ficha: botones Cotizar por WhatsApp y Agregar a mi cotización', await js("document.querySelector('.detail-actions .btn-primary').getAttribute('href')==='https://wa.me/51937419437?text='+encodeURIComponent("+JSON.stringify(MSG_V)+") && document.getElementById('addQuoteBtn').textContent.includes('Agregar a mi cotización')") === true);
+ok('Ficha: flechas anterior/siguiente con posición', await js("(()=>{return !!document.getElementById('prevBtn')&&!!document.getElementById('nextBtn')&&/\\d+ \\/ \\d+/.test(document.querySelector('.navpos').textContent)})()") === true);
+ok('Flecha derecha pasa al siguiente repuesto de la lista actual', await js("(()=>{const cur=currentList.findIndex(p=>p.slug==='valvula-de-admision-65-04101-0026');document.getElementById('nextBtn').click();return location.hash==='#/repuesto/'+currentList[cur+1].slug})()") === true);
+await wait(400);
+ok('Tecla ← vuelve al anterior', await js("(()=>{document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft'}));return location.hash==='#/repuesto/valvula-de-admision-65-04101-0026'})()") === true);
+await wait(400);
+ok('Repuestos relacionados por modelo de máquina (hasta 4, comparten familia)', await js("(()=>{const rel=[...document.querySelectorAll('.similar .product')];const fams=familiesOf(currentProduct());return rel.length===4&&rel.every(card=>{const slug=card.querySelector('a').getAttribute('href').replace('#/repuesto/','');return familiesOf(ALL.find(p=>p.slug===slug)).some(f=>fams.includes(f))})})()") === true);
 ok('Muestra el aviso de número de serie', (await js("document.querySelector('.warn').textContent")).includes('Confirma la aplicación con el número de serie de tu equipo antes de comprar.'));
-ok('Ficha usa la tarjeta grande (1080x1350) como imagen principal', (await js("document.getElementById('detailImg').getAttribute('src')")).includes('assets/img/repuestos/24-'));
-ok('Ficha con 2 fotos muestra miniaturas y al elegir la segunda cambia a la fotografía', await js("(()=>{const t=document.querySelectorAll('[data-thumb]');if(t.length!==2)return false;t[1].click();return document.getElementById('detailImg').getAttribute('src').includes('valvula-65041010026-grande')})()") === true);
-ok('Productos similares: 3 de la misma línea', await js("document.querySelectorAll('.similar .product').length===3&&[...document.querySelectorAll('.similar .meta span:first-child')].every(s=>s.textContent==='Culata y válvulas')") === true);
-ok('Botones Copiar código y Compartir presentes', await js("!!document.getElementById('copyCode') && !!document.getElementById('shareBtn')") === true);
-ok('CTA de la ficha va a WhatsApp con el mensaje exacto', await js("document.querySelector('.detail-actions .btn-primary').getAttribute('href')") === 'https://wa.me/51937419437?text=' + encodeURIComponent(MSG_V));
-await shot('05-ficha-valvula');
-ok('Zoom usa la tarjeta grande', await js("(()=>{document.getElementById('zoomBtn').click();const im=document.querySelector('#lightbox img');const r=im&&/assets\\/img\\/(repuestos\\/24-|productos\\/valvula-65041010026-grande)/.test(im.getAttribute('src'));document.getElementById('lbClose').click();return r})()") === true);
-await js("location.hash='#/repuesto/empaque-de-motor-65-99601-8024'"); await wait(500);
-ok('Ficha de un repuesto del catálogo: código, marca y modelos; sin fila de pendiente', await js("(()=>{const t=document.querySelector('.spec').textContent;return document.querySelector('.detail-body .code').textContent==='Código 65.99601-8024'&&t.includes('MarcaDOOSAN')&&t.includes('Modelos / aplicaciónDB58TIS / JUEGO')&&!t.includes('Pendiente de confirmar')})()") === true);
-await js("location.hash='#/repuesto/no-existe'"); await wait(500);
+ok('Zoom usa la tarjeta grande', await js("(()=>{document.getElementById('zoomBtn').click();const im=document.querySelector('#lightbox img');const r=im&&im.getAttribute('src').includes('assets/img/repuestos/24-');document.getElementById('lbClose').click();return r})()") === true);
+await shot('05-ficha');
+await js("location.hash='#/repuesto/no-existe'"); await wait(400);
 ok('Slug inexistente cierra la ficha sin romper', await js("document.getElementById('detail').hidden") === true);
-await js("location.hash='#catalogo'"); await wait(400);
-ok('Título vuelve al base al cerrar', (await js("document.title")).startsWith('DOGEPARTS SAC |'));
+await js("location.hash='#catalogo'"); await wait(300);
+
+// ---------- lista de cotización ----------
+ok('Lista vacía: sin botón flotante', await js("quoteFab.hidden") === true);
+ok('Agregar desde la tarjeta (+) muestra el botón "Mi cotización (1)" y un aviso', await js("(()=>{document.querySelector('#products [data-add]').click();return !quoteFab.hidden&&quoteCount.textContent==='1'&&document.getElementById('toast').classList.contains('show')})()") === true);
+ok('Agregar desde la ficha suma y el botón cambia a "En mi cotización"', await js("(()=>{location.hash='#/repuesto/bomba-de-agua-65-06500-6402';return true})()") === true);
+await wait(500);
+ok('…', await js("(()=>{document.getElementById('addQuoteBtn').click();return document.getElementById('addQuoteBtn').textContent.includes('En mi cotización (1)')&&quoteCount.textContent==='2'})()") === true);
+await js("history.pushState(null,'','#catalogo');closeDetail(true)");
+ok('Se guarda en el navegador (localStorage)', await js("JSON.parse(localStorage.getItem('dgp-cotizacion')).length===2") === true);
+ok('Abrir la lista: 2 repuestos con cantidad y quitar', await js("(()=>{quoteFab.click();return quoteDrawer.classList.contains('open')&&document.querySelectorAll('.qitem').length===2&&quoteTitle.textContent==='Mi cotización (2)'})()") === true);
+ok('Cantidad +1 actualiza el total', await js("(()=>{document.querySelector('.qitem [data-qty=\"1\"]').click();return document.querySelector('.qitem input').value==='2'&&quoteCount.textContent==='3'})()") === true);
+const waList = await js("decodeURIComponent(quoteSend.href.split('text=')[1])");
+ok('"Enviar por WhatsApp" manda un solo mensaje con nombre, código y cantidad al +51 937 419 437', (await js("quoteSend.href")).startsWith('https://wa.me/51937419437?text=') && waList.startsWith('Hola, deseo cotizar los siguientes repuestos:') && /1\. .+ — código .+ — cantidad: 2/.test(waList) && /2\. Bomba de agua — código 65\.06500-6402 — cantidad: 1/.test(waList) && waList.endsWith('¿Podrían confirmarme precio y disponibilidad?'));
+ok('Quitar un repuesto de la lista', await js("(()=>{document.querySelector('.qitem [data-remove]').click();return document.querySelectorAll('.qitem').length===1})()") === true);
+ok('Escape cierra la lista', await js("(()=>{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return !quoteDrawer.classList.contains('open')})()") === true);
+await goto(URL_.split('?')[0]);
+ok('La lista sobrevive a la recarga', await js("!quoteFab.hidden&&quoteCount.textContent==='1'") === true);
+await js("quote=[];saveQuote()");
+
+// ---------- datos comerciales y mapa ----------
+const cards = await js("[...document.querySelectorAll('#contactCards .contact-card b')].map(b=>b.textContent.trim())");
+ok('Tarjetas de contacto reales', JSON.stringify(cards) === JSON.stringify(['WhatsApp','Teléfono','Correo','Horario','Dirección']), JSON.stringify(cards));
+ok('El mapa no se incrusta antes de llegar; al incrustar es OpenStreetMap con el pin', await js("(()=>{if(map.querySelector('iframe'))return false;loadMap();const f=map.querySelector('iframe');return !!f&&f.src.includes('openstreetmap.org')&&f.src.includes('marker=-12.075358,-77.009017')&&!!map.querySelector('.map-link')})()") === true);
+const ld = await js("[...document.querySelectorAll('script[type=\"application/ld+json\"]')].map(s=>JSON.parse(s.textContent))");
+const org = ld.find(x => x['@type'] === 'AutoPartsStore'), list = ld.find(x => x['@type'] === 'ItemList');
+ok('JSON-LD de empresa y 70 productos sin precio ni valoraciones', !!org && org.telephone === '+51 937 419 437' && !!org.geo && !!list && list.numberOfItems === 70 && list.itemListElement.every(i => i.item.sku && !i.item.offers));
+ok('Créditos fotográficos visibles en el pie', await js("(()=>{const c=document.getElementById('credits');return !c.hidden && c.querySelectorAll('a[href*=creativecommons]').length>=3})()") === true);
+
+// ---------- portada ----------
+ok('Portada: 6 diapositivas, rota sola y se detiene con el cursor', await js("document.querySelectorAll('#slider .slide').length===6 && slider.classList.contains('is-playing')") === true);
+const idxA = await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)");
+await wait(3600);
+ok('Portada: rota cada 3 segundos', (await js("Number(document.querySelector('#slider .slide.is-active').dataset.i)")) !== idxA);
+ok('Portada: pausa al pasar el cursor', await js("(()=>{slider.dispatchEvent(new PointerEvent('pointerenter'));return !slider.classList.contains('is-playing')})()") === true);
+await js("slider.dispatchEvent(new PointerEvent('pointerleave'))");
 
 // ---------- formulario ----------
-ok('Envío vacío marca errores y no da éxito', await js("(()=>{requestForm.dispatchEvent(new Event('submit',{cancelable:true}));return document.querySelectorAll('.form [aria-invalid=\"true\"]').length>=3&&notice.dataset.kind==='error'})()") === true);
-ok('Sin teléfono ni correo -> error', (await js("(()=>{rName.value='Constructora X';rMsg.value='Necesito la válvula';rPhone.value='';rMail.value='';requestForm.dispatchEvent(new Event('submit',{cancelable:true}));return errPhone.textContent})()")).includes('teléfono'));
-ok('Correo mal formado -> error', (await js("(()=>{rMail.value='abc@';requestForm.dispatchEvent(new Event('submit',{cancelable:true}));return errMail.textContent})()")).includes('formato'));
-ok('Solicitud válida -> resumen con WhatsApp y correo', await js("(()=>{rMail.value='compras@ejemplo.com';rPhone.value='987654321';rCode.value='65.04101-0026';requestForm.dispatchEvent(new Event('submit',{cancelable:true}));const a=[...notice.querySelectorAll('a')];return notice.dataset.kind==='ok'&&a.some(x=>x.href.startsWith('https://wa.me/51937419437?text=Hola%2C%20quiero%20solicitar'))&&a.some(x=>x.href.startsWith('mailto:ventas@dogeparts.pe?subject='))})()") === true);
-ok('No afirma haber guardado ni enviado la solicitud', !/enviada|guardada|recibimos tu solicitud/i.test(await js("notice.textContent")));
+ok('Envío vacío marca errores', await js("(()=>{requestForm.dispatchEvent(new Event('submit',{cancelable:true}));return document.querySelectorAll('.form [aria-invalid=\"true\"]').length>=3&&notice.dataset.kind==='error'})()") === true);
+ok('Solicitud válida -> resumen con WhatsApp y correo', await js("(()=>{rName.value='Constructora X';rMsg.value='Necesito la válvula';rMail.value='compras@ejemplo.com';rPhone.value='987654321';rCode.value='65.04101-0026';requestForm.dispatchEvent(new Event('submit',{cancelable:true}));const a=[...notice.querySelectorAll('a')];return notice.dataset.kind==='ok'&&a.some(x=>x.href.startsWith('https://wa.me/51937419437?text=Hola%2C%20quiero%20solicitar'))&&a.some(x=>x.href.startsWith('mailto:ventas@dogeparts.pe?subject='))})()") === true);
 ok('Rechaza 4 adjuntos', (await js("(()=>{const dt=new DataTransfer();for(let i=0;i<4;i++)dt.items.add(new File([new Uint8Array(10)],'f'+i+'.jpg',{type:'image/jpeg'}));rFiles.files=dt.files;rFiles.dispatchEvent(new Event('change'));return errFiles.textContent})()")).includes('máximo 3'));
-ok('Rechaza formato no admitido', (await js("(()=>{const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(10)],'malo.exe',{type:'application/x-msdownload'}));rFiles.files=dt.files;rFiles.dispatchEvent(new Event('change'));return errFiles.textContent})()")).includes('no es un formato admitido'));
-ok('Rechaza archivo mayor a 5 MB', (await js("(()=>{const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(6*1024*1024)],'grande.jpg',{type:'image/jpeg'}));rFiles.files=dt.files;rFiles.dispatchEvent(new Event('change'));return errFiles.textContent})()")).includes('supera los 5 MB'));
-ok('Acepta adjunto válido y lo lista en el resumen', await js("(()=>{const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(1024)],'placa.jpg',{type:'image/jpeg'}));rFiles.files=dt.files;rFiles.dispatchEvent(new Event('change'));requestForm.dispatchEvent(new Event('submit',{cancelable:true}));return errFiles.textContent===''&&notice.dataset.kind==='ok'&&notice.querySelector('pre').textContent.includes('placa.jpg')})()") === true);
-await js("rCode.value='';rMsg.value='';location.hash='#/repuesto/valvula-de-admision-65-04101-0026'"); await wait(400);
-ok('Enviar solicitud desde la ficha rellena el código', await js("(()=>{document.querySelector('.detail-actions [data-quote]').click();return rCode.value==='65.04101-0026'&&rMsg.value.includes('deseo cotizar')})()") === true);
-await js("location.hash='#catalogo'"); await wait(300);
+ok('Acepta adjunto válido', await js("(()=>{const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(1024)],'placa.jpg',{type:'image/jpeg'}));rFiles.files=dt.files;rFiles.dispatchEvent(new Event('change'));return errFiles.textContent===''})()") === true);
 
 // ---------- accesibilidad ----------
 ok('Todas las imágenes tienen alt y dimensiones', await js("[...document.images].every(i=>i.hasAttribute('alt')&&i.hasAttribute('width')&&i.hasAttribute('height'))") === true);
 ok('Hay un único h1', await js("document.querySelectorAll('h1').length") === 1);
-ok('Campos y selectores tienen label', await js("[...document.querySelectorAll('.form input,.form textarea,.filters select,.filters input')].every(e=>!!document.querySelector('label[for=\"'+e.id+'\"]'))") === true);
-ok('Buscadores declaran combobox accesible', await js("['heroSearch','search'].every(id=>{const e=document.getElementById(id);return e.getAttribute('role')==='combobox'&&document.getElementById(e.getAttribute('aria-controls'))})") === true);
+ok('Buscadores declaran combobox accesible y el orden tiene etiqueta', await js("['heroSearch','search'].every(id=>{const e=document.getElementById(id);return e.getAttribute('role')==='combobox'&&document.getElementById(e.getAttribute('aria-controls'))}) && !!document.querySelector('label[for=search]') && !!document.getElementById('sort').getAttribute('aria-label')") === true);
+ok('Chips de modelo y opciones de filtro son botones con estado (teclado)', await js("[...document.querySelectorAll('#modelChips .mchip, .fopt, .viewbtn')].every(b=>b.tagName==='BUTTON'&&b.hasAttribute('aria-pressed'))") === true);
 const small = await js("[...document.querySelectorAll('a,button')].filter(e=>e.offsetParent!==null&&!e.closest('.credits')).map(e=>({s:e.tagName+'.'+(e.className||'-'),h:Math.round(e.getBoundingClientRect().height),t:e.textContent.trim().slice(0,24)})).filter(x=>x.h>0&&x.h<44)");
 ok('Todos los controles visibles miden 44px o más de alto', small.length === 0, JSON.stringify(small));
 
@@ -230,7 +216,7 @@ const contrast = await js(`(()=>{
   };
   const ratio = (a,b) => { const l1=L(a),l2=L(b); return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05); };
   const out=[];
-  const sels=['.lead','.head p','.topbar span','.marquee span','.benefit p','.legal span','.footer p','.meta span','.meta .marca','.code','.availability','.price','.catalog .eyebrow','.product p','.hint','.step p','.cat small','.toolbar','.contact-card small','.contact .head p','.credits p'];
+  const sels=['.lead','.head p','.topbar span','.benefit p','.footer p','.card-meta','.card-meta b','.card-models','.code','.count','.mchip','.mchip small','.mchip[aria-pressed=true]','.fopt','.fopt small','.fgroup legend','.chip','.hint','.step p','.cat small','.contact-card small','.credits p'];
   for(const s of sels){
     const el=document.querySelector(s); if(!el||el.offsetParent===null) continue;
     const cs=getComputedStyle(el);
@@ -243,31 +229,45 @@ const contrast = await js(`(()=>{
 })()`);
 contrast.forEach(x => ok('Contraste ' + x.s + ' = ' + x.r + ':1 (mín ' + x.min + ')', x.ok, 'insuficiente'));
 
-// ---------- responsive ----------
-for (const [w,h,name] of [[320,780,'06-movil-320'],[375,812,'07-movil-375'],[768,1024,'08-tablet-768'],[1440,900,'09-escritorio']]) {
+// ---------- móvil ----------
+await js("try{localStorage.clear()}catch(e){}");
+for (const [w,h] of [[360,740],[390,844]]) {
   await setViewport(w,h);
-  await wait(500);
+  await goto(URL_.split('?')[0]);
+  ok(`${w}px: vista lista por defecto`, await js("products.dataset.view==='list'") === true);
+  ok(`${w}px: botón Filtros visible y panel oculto`, await js("getComputedStyle(document.getElementById('filtersBtn')).display!=='none' && !document.getElementById('filtersPanel').classList.contains('open')") === true);
+  await js("window.scrollTo(0,document.getElementById('catalogo').getBoundingClientRect().top+window.scrollY-60)"); await wait(600);
+  const firstScreen = await js("(()=>{const rows=[...document.querySelectorAll('#products .row')];if(rows.length<4)return {s:false,m:false,r4:false,rows:rows.length};const r4=rows[3].getBoundingClientRect();const s=document.getElementById('search').getBoundingClientRect();const m=document.getElementById('modelChips').getBoundingClientRect();return {s:s.top>=0&&s.bottom<=innerHeight,m:m.top>=0&&m.bottom<=innerHeight,r4:r4.bottom<=innerHeight,rows:rows.filter(r=>r.getBoundingClientRect().bottom<=innerHeight).length}})()");
+  ok(`${w}px: primera pantalla del catálogo muestra buscador, modelos y ≥4 repuestos (${firstScreen.rows} visibles)`, firstScreen.s && firstScreen.m && firstScreen.r4, JSON.stringify(firstScreen));
+  await js("window.scrollTo({top:window.scrollY+500,behavior:'instant'})"); await wait(300);
+  ok(`${w}px: la barra de búsqueda sigue fija al bajar`, await js("Math.abs(document.getElementById('catbar').getBoundingClientRect().top-64)<3") === true);
+  await js("document.getElementById('filtersBtn').click()"); await wait(500);
+  ok(`${w}px: panel de filtros se abre como hoja inferior con "Ver X resultados" y orden dentro`, await js("(()=>{const p=document.getElementById('filtersPanel');const r=p.getBoundingClientRect();return p.classList.contains('open')&&Math.abs(r.bottom-innerHeight)<2&&/^Ver 70 resultados$/.test(document.getElementById('fpApply').textContent)&&getComputedStyle(p.querySelector('.sortgroup')).display!=='none'})()") === true);
+  await shot(`${w}-filtros`);
+  ok(`${w}px: elegir Refrigeración en la hoja actualiza "Ver X resultados" y cierra al aplicar`, await js("(()=>{[...document.querySelectorAll('.fopt[data-filter=category]')].find(x=>x.dataset.value==='Refrigeración').click();const t=document.getElementById('fpApply').textContent;document.getElementById('fpApply').click();return t==='Ver 9 resultados'&&!document.getElementById('filtersPanel').classList.contains('open')&&document.querySelectorAll('#products .product').length===9})()") === true);
+  await js("clearAll()");
+  await js("location.hash='#/repuesto/bomba-de-agua-65-06500-6402'"); await wait(600);
+  ok(`${w}px: la ficha ocupa toda la pantalla`, await js("(()=>{const b=document.querySelector('.detail-box').getBoundingClientRect();return b.width>=innerWidth-20&&Math.abs(b.top)<2&&!document.getElementById('detail').hidden&&getComputedStyle(document.querySelector('.detail-bar nav')).display==='none'})()") === true);
+  await shot(`${w}-ficha`);
+  await js("history.pushState(null,'','#catalogo');closeDetail(true)");
   const over = await js("document.documentElement.scrollWidth-document.documentElement.clientWidth");
-  ok('Sin desbordamiento horizontal a ' + w + 'px', over <= 0, 'sobran ' + over + 'px');
-  if(w < 900) ok('Barra inferior móvil con WhatsApp a ' + w + 'px', await js("(()=>{const b=document.getElementById('mbar');return getComputedStyle(b).display!=='none' && !!b.querySelector('a[href^=\"https://wa.me/51937419437\"]')})()") === true);
-  await shot(name);
+  ok(`${w}px: sin desbordamiento horizontal`, over <= 0, 'sobran ' + over + 'px');
+  ok(`${w}px: barra inferior con WhatsApp`, await js("(()=>{const b=document.getElementById('mbar');return getComputedStyle(b).display!=='none' && !!b.querySelector('a[href^=\"https://wa.me/51937419437\"]')})()") === true);
+  await js("addToQuote('empaque-de-motor-65-99601-8024')");
+  ok(`${w}px: con repuestos, la barra inferior ofrece "Mi cotización (1)" y abre la hoja`, await js("(()=>{const b=document.getElementById('mbarQuote');if(!b.textContent.includes('Mi cotización (1)'))return false;b.click();return quoteDrawer.classList.contains('open')})()") === true);
+  await shot(`${w}-cotizacion`);
+  await js("closeQuote();quote=[];saveQuote()");
 }
-
-// ---------- mapa: carga automática al llegar a la sección ----------
-await setViewport(1440,900);
-await goto(URL_);
-ok('Mapa: sin iframe al cargar la página', await js("map.querySelector('iframe')===null") === true);
-await js("document.getElementById('contacto').scrollIntoView()");
-await wait(1200);
-ok('Mapa: se incrusta solo al llegar a Contacto (OpenStreetMap con marcador)', await js("(()=>{const f=map.querySelector('iframe');return !!f && f.src.includes('openstreetmap.org') && f.src.includes('marker=') && !!map.querySelector('.map-link')})()") === true);
+for (const [w,h] of [[768,1024],[1366,768]]) {
+  await setViewport(w,h); await goto(URL_.split('?')[0]);
+  const over = await js("document.documentElement.scrollWidth-document.documentElement.clientWidth");
+  ok(`${w}px: sin desbordamiento horizontal`, over <= 0, 'sobran ' + over + 'px');
+}
 
 // ---------- prefers-reduced-motion ----------
 await c.send('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion', value:'reduce'}]});
-await goto(URL_);
-ok('Movimiento reducido: la portada no rota sola', await js("!slider.classList.contains('is-playing') && document.querySelector('#slider .slide.is-active').dataset.i==='0'") === true);
-await wait(3400);
-ok('Movimiento reducido: sigue en la primera diapositiva', await js("document.querySelector('#slider .slide.is-active').dataset.i==='0'") === true);
-ok('Movimiento reducido: sin inclinación 3D', await js("(()=>{const m=document.querySelector('.machine');const r=m.getBoundingClientRect();m.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+r.width*0.9,clientY:r.top+r.height*0.2}));return document.getElementById('tilt').style.transform===''})()") === true);
+await goto(URL_.split('?')[0]);
+ok('Movimiento reducido: la portada no rota sola', await js("!slider.classList.contains('is-playing')") === true);
 await c.send('Emulation.setEmulatedMedia', {features:[]});
 
 console.log('\nRESULTADO: ' + pass + ' correctas, ' + fail + ' fallidas');

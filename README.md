@@ -76,6 +76,26 @@ atribución): el crédito se muestra en la leyenda y en el pie. Si se sustituyen
 usar solo fotografías con derechos de uso y mantener el campo `credit` cuando
 la licencia lo exija.
 
+### Cómo funciona el catálogo
+
+- Un solo buscador (fijo al bajar) que encuentra por código con o sin puntos
+  (`6503203` encuentra `65.03203-1053`), por nombre, marca o modelo, sin
+  importar tildes. Sugiere 5 repuestos con miniatura; al elegir uno abre su ficha.
+- Accesos rápidos por **modelo de máquina**: se derivan solos de los datos
+  (familias con dos o más repuestos). Para fijar la lista a mano, definir
+  `window.MODEL_CHIPS = ['DX225','DX300',…]` en `datos/productos.js`.
+- Filtros por categoría, marca, máquina y presentación: columna lateral en
+  computadora, hoja inferior con "Ver X resultados" en celular. Los filtros
+  activos se muestran como chips y quedan en la URL (`?modelo=DX300&cat=Motor`)
+  para compartir resultados.
+- Resultados de 12 en 12 ("Ver más repuestos"), orden por relevancia, nombre o
+  categoría, y vista lista (por defecto en celular) o cuadrícula, recordada en
+  el navegador.
+- Ficha con flechas (o deslizar en celular) para pasar al anterior/siguiente y
+  "Repuestos relacionados" (mismo modelo de máquina).
+- **Mi cotización**: lista sin precios guardada en el navegador; "Enviar por
+  WhatsApp" manda un solo mensaje con nombre, código y cantidad de cada repuesto.
+
 ### Mensaje de WhatsApp
 
 Cada botón de cotizar genera exactamente:

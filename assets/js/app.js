@@ -1,19 +1,21 @@
 /* =========================================================================
    DOGEPARTS SAC · Repuestos Genuinos — lógica de la web
-   Los datos viven en datos/sitio.js y datos/productos.js. Este archivo no
-   contiene ningún dato comercial.
+   Los datos viven en datos/sitio.js, datos/productos.js y datos/portada.js.
+   Este archivo no contiene ningún dato comercial.
    ========================================================================= */
 
 const SITE = window.SITE || {};
 const CATEGORIES = window.CATEGORIES || [];
 const PRODUCTS = window.PRODUCTS || [];
 
-const PER_PAGE = 24;
+const PAGE_STEP = 12;                       // resultados que se muestran por tanda ("Ver más")
+const SUGGESTIONS = 5;                      // sugerencias con miniatura
 const AVAILABILITY_LABEL = {consultar:'Consultar disponibilidad', stock:'Disponible', pedido:'Bajo pedido'};
 const SERIAL_WARNING = 'Confirma la aplicación con el número de serie de tu equipo antes de comprar.';
 const BASE_TITLE = document.title;
 const BASE_DESC = document.querySelector('meta[name=description]').content;
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MOBILE = () => window.innerWidth < 900;
 
 document.documentElement.classList.remove('no-js');
 
@@ -21,6 +23,10 @@ document.documentElement.classList.remove('no-js');
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const abs = path => SITE.siteUrl ? SITE.siteUrl.replace(/\/$/,'') + '/' + String(path).replace(/^\.?\//,'') : path;
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
 
 /** Normaliza para búsqueda tolerante: sin tildes, minúsculas. */
 function normalize(s){ return String(s ?? '').normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().trim(); }
@@ -37,6 +43,21 @@ function matchesQuery(p, q){
   const hay = haystack(p);
   return normalize(hay).includes(normalize(q)) || compact(hay).includes(compact(q));
 }
+/** Relevancia de un producto frente a una búsqueda (mayor = mejor). */
+function scoreOf(p, q){
+  if(!q) return 0;
+  const n = normalize(q), c = compact(q);
+  const code = compact(p.code), name = normalize(p.name);
+  if(code && code === c) return 120;
+  if(code && code.startsWith(c)) return 100;
+  if(code && code.includes(c)) return 85;
+  if(name.startsWith(n)) return 70;
+  if(name.includes(n)) return 60;
+  if(normalize(p.models).includes(n) || compact(p.models).includes(c)) return 50;
+  if(normalize(p.brand).includes(n) || normalize(p.category).includes(n)) return 40;
+  if(normalize(p.description).includes(n)) return 30;
+  return 10;
+}
 function priceLabel(p){
   return (p.price === null || p.price === undefined || p.price === '') ? 'Consultar precio'
     : new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(p.price);
@@ -47,7 +68,20 @@ function applicationText(p){
   if(p.compat.length) return p.compat.map(c => [c.machine, c.engine].filter(Boolean).join(' · ')).join('; ');
   return p.models || '';
 }
+/** Familia de modelo de un token del catálogo: 'DE08TIS' -> 'DE08', 'DX225LCA' -> 'DX225', 'ROBEX R380' -> 'ROBEX'. */
+function familyOf(token){
+  const t = String(token||'').trim().toUpperCase();
+  if(/^ROBEX/.test(t)) return 'ROBEX';
+  const m = t.match(/^([A-Z]{1,3}\d{2,4})/);
+  return m ? m[1] : null;
+}
+function familiesOf(p){
+  if(!p._fam) p._fam = [...new Set(String(p.models||'').split('/').map(familyOf).filter(Boolean))];
+  return p._fam;
+}
 function productUrl(p){ return abs('#/repuesto/' + p.slug); }
+function thumbOf(p){ return p.images[0].src; }
+function fullOf(p){ return p.images[0].full || p.images[0].src; }
 
 /* ---------- iconos (SVG en línea, sin librerías) ---------- */
 const ICONS = {
@@ -79,7 +113,18 @@ const ICONS = {
   copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/>',
   zoom:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5M11 8v6M8 11h6"/>',
   up:'<path d="M12 19V5M5 12l7-7 7 7"/>',
-  camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/>',
+  filter:'<path d="M3 5h18M6 12h12M10 19h4"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.3"/><circle cx="4" cy="12" r="1.3"/><circle cx="4" cy="18" r="1.3"/>',
+  grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  minus:'<path d="M5 12h14"/>',
+  check:'<path d="M5 12l5 5L20 7"/>',
+  cart:'<path d="M4 5h2l2.2 10.5a1.5 1.5 0 001.5 1.2h7.9a1.5 1.5 0 001.5-1.2L21 8H7"/><circle cx="10" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/>',
+  trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+  left:'<path d="M15 5l-7 7 7 7"/>',
+  right:'<path d="M9 5l7 7-7 7"/>',
+  close:'<path d="M6 6l12 12M18 6L6 18"/>',
   social:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/>'
 };
 const icon = (name, cls='') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]||ICONS['Otros repuestos']}</svg>`;
@@ -98,10 +143,10 @@ function waHref(text){
 }
 const GENERIC_WA = 'Hola, deseo consultar por un repuesto.';
 /** CTA de cotización: WhatsApp si está configurado, si no el formulario interno. */
-function quoteCta(p, cls){
+function quoteCta(p, cls, label='Cotizar por WhatsApp'){
   const href = waHref(quoteMessage(p));
   return href
-    ? `<a class="btn ${cls}" href="${esc(href)}" target="_blank" rel="noopener">${WA_ICON}Cotizar por WhatsApp</a>`
+    ? `<a class="btn ${cls}" href="${esc(href)}" target="_blank" rel="noopener">${WA_ICON}${label}</a>`
     : `<a class="btn ${cls}" href="#solicitar" data-quote="${esc(p.slug)}">Solicitar cotización</a>`;
 }
 const telHref = s => 'tel:' + String(s).replace(/[^\d+]/g,'');
@@ -119,131 +164,237 @@ async function loadProducts(){
 }
 
 let ALL = [];
-let state = {q:'', category:'', brand:'', machine:'', availability:'', page:1};
+const FILTER_KEYS = ['model','category','brand','machine','presentation','availability'];
+let state = {q:'', model:'', category:'', brand:'', machine:'', presentation:'', availability:'', sort:'relevancia', view:'grid', shown: PAGE_STEP};
+let currentList = [];        // resultado filtrado y ordenado completo (para la navegación de la ficha)
 
-/* ---------- filtros ---------- */
-function filtered(){
-  return ALL.filter(p =>
-    matchesQuery(p, state.q) &&
-    (!state.category || p.category === state.category) &&
-    (!state.brand || p.brand === state.brand) &&
-    (!state.machine || machinesOf(p).includes(state.machine)) &&
-    (!state.availability || p.availability === state.availability)
-  );
+/* ---------- estado <-> URL (para compartir enlaces con resultados) ---------- */
+const URL_KEYS = {q:'q', model:'modelo', category:'cat', brand:'marca', machine:'maquina', presentation:'pres', availability:'disp', sort:'orden', view:'vista'};
+function readStateFromUrl(){
+  const sp = new URLSearchParams(location.search);
+  for(const [k, u] of Object.entries(URL_KEYS)){
+    const v = sp.get(u);
+    if(v !== null) state[k] = v;
+  }
+  if(!['relevancia','nombre','categoria'].includes(state.sort)) state.sort = 'relevancia';
+  const v = sp.get('vista');
+  state.view = ['list','grid'].includes(v) ? v : store.get('dgp-vista', MOBILE() ? 'list' : 'grid');
+  if(!['list','grid'].includes(state.view)) state.view = MOBILE() ? 'list' : 'grid';
+}
+function writeStateToUrl(){
+  const sp = new URLSearchParams();
+  for(const [k, u] of Object.entries(URL_KEYS)){
+    const v = state[k];
+    if(!v) continue;
+    if(k === 'sort' && v === 'relevancia') continue;
+    if(k === 'view') continue;             // la vista se recuerda en el navegador, no en el enlace
+    sp.set(u, v);
+  }
+  const qs = sp.toString();
+  try{ history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash); }catch(e){}
 }
 
-function fillSelects(){
-  const cat = $('category');
-  CATEGORIES.forEach(c => cat.insertAdjacentHTML('beforeend', `<option value="${esc(c)}">${esc(c)}</option>`));
-  const brands = [...new Set(ALL.map(p => p.brand).filter(Boolean))].sort();
-  const br = $('brand');
-  brands.forEach(b => br.insertAdjacentHTML('beforeend', `<option value="${esc(b)}">${esc(b)}</option>`));
-  if(!brands.length) br.closest('div').hidden = true;
-  const machines = [...new Set(ALL.flatMap(machinesOf))].sort();
-  const mac = $('machine');
-  machines.forEach(m => mac.insertAdjacentHTML('beforeend', `<option value="${esc(m)}">${esc(m)}</option>`));
-  if(!machines.length) mac.closest('div').hidden = true;
-  const avails = [...new Set(ALL.map(p => p.availability))];
-  const av = $('availability');
-  avails.forEach(a => av.insertAdjacentHTML('beforeend', `<option value="${esc(a)}">${esc(AVAILABILITY_LABEL[a]||a)}</option>`));
+/* ---------- filtrado y orden ---------- */
+function passes(p, s){
+  return matchesQuery(p, s.q) &&
+    (!s.model || familiesOf(p).includes(s.model)) &&
+    (!s.category || p.category === s.category) &&
+    (!s.brand || p.brand === s.brand) &&
+    (!s.machine || machinesOf(p).includes(s.machine)) &&
+    (!s.presentation || (p.presentation||'') === s.presentation) &&
+    (!s.availability || p.availability === s.availability);
+}
+function sortList(list){
+  const byName = (a,b) => a.name.localeCompare(b.name, 'es') || (a.item||0) - (b.item||0);
+  if(state.sort === 'nombre') return [...list].sort(byName);
+  if(state.sort === 'categoria') return [...list].sort((a,b) => a.category.localeCompare(b.category,'es') || byName(a,b));
+  if(state.q) return [...list].sort((a,b) => scoreOf(b, state.q) - scoreOf(a, state.q) || (a.item||0) - (b.item||0));
+  return [...list].sort((a,b) => (b.featured?1:0) - (a.featured?1:0) || (a.item||0) - (b.item||0));
+}
+function filtered(){ return sortList(ALL.filter(p => passes(p, state))); }
+/** Cuenta resultados si se aplicara un valor en un filtro (sin tener en cuenta el valor actual de ese filtro). */
+function countWith(key, value){
+  const s = {...state, [key]: value};
+  return ALL.filter(p => passes(p, s)).length;
+}
+function activeFilterCount(){ return FILTER_KEYS.filter(k => state[k]).length; }
+
+/* ---------- accesos rápidos por modelo ---------- */
+function modelChips(){
+  const counts = {};
+  ALL.forEach(p => familiesOf(p).forEach(f => counts[f] = (counts[f]||0) + 1));
+  const list = (window.MODEL_CHIPS && window.MODEL_CHIPS.length)
+    ? window.MODEL_CHIPS.filter(f => counts[f])
+    : Object.entries(counts).filter(([,n]) => n >= 2).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0])).map(([f]) => f);
+  return list.map(f => ({key:f, n:counts[f]}));
+}
+function renderModelChips(){
+  const chips = modelChips();
+  $('modelChips').innerHTML = `<button type="button" class="mchip" data-model="" aria-pressed="${!state.model}">Todos</button>` +
+    chips.map(c => `<button type="button" class="mchip" data-model="${esc(c.key)}" aria-pressed="${state.model===c.key}">${esc(c.key)}<small>${c.n}</small></button>`).join('');
 }
 
+/* ---------- panel de filtros ---------- */
+function filterGroups(){
+  const vals = (fn) => [...new Set(ALL.map(fn).filter(Boolean))];
+  const groups = [
+    {key:'category', label:'Categoría', values: CATEGORIES.filter(c => ALL.some(p => p.category === c)), icons:true},
+    {key:'brand', label:'Marca', values: vals(p => p.brand).sort()},
+    {key:'machine', label:'Máquina', values: vals(p => p.machineType).sort()},
+    {key:'presentation', label:'Presentación', values: vals(p => p.presentation).sort()},
+  ];
+  const av = vals(p => p.availability);
+  if(av.length > 1) groups.push({key:'availability', label:'Disponibilidad', values: av, labels: AVAILABILITY_LABEL});
+  return groups.filter(g => g.values.length > 1);
+}
+function renderFilterPanel(){
+  const html = filterGroups().map(g => `<fieldset class="fgroup"><legend>${esc(g.label)}</legend>
+    <div class="fopts">${g.values.map(v => {
+      const n = countWith(g.key, v);
+      const on = state[g.key] === v;
+      return `<button type="button" class="fopt" data-filter="${g.key}" data-value="${esc(v)}" aria-pressed="${on}" ${n===0 && !on ? 'disabled' : ''}>
+        ${g.icons ? icon(v) : ''}<span>${esc(g.labels ? (g.labels[v]||v) : v)}</span><small>${n}</small></button>`;
+    }).join('')}</div></fieldset>`).join('');
+  const sortHtml = `<fieldset class="fgroup sortgroup"><legend>Ordenar por</legend><div class="fopts">${[['relevancia','Relevancia'],['nombre','Nombre A–Z'],['categoria','Categoría']].map(([v,l]) =>
+    `<button type="button" class="fopt" data-sort="${v}" aria-pressed="${state.sort===v}"><span>${l}</span></button>`).join('')}</div></fieldset>`;
+  $('filterGroups').innerHTML = html + sortHtml;
+  const n = activeFilterCount();
+  const badge = $('filtersBadge'); badge.textContent = n; badge.hidden = n === 0;
+  $('fpApply').textContent = `Ver ${currentList.length} ${currentList.length === 1 ? 'resultado' : 'resultados'}`;
+  $('fpClear').hidden = n === 0 && !state.q;
+}
+function openFilters(){
+  $('filtersPanel').classList.add('open'); $('filtersBackdrop').hidden = false;
+  $('filtersBtn').setAttribute('aria-expanded','true');
+  document.body.style.overflow = 'hidden';
+  $('fpClose').focus();
+}
+function closeFilters(){
+  $('filtersPanel').classList.remove('open'); $('filtersBackdrop').hidden = true;
+  $('filtersBtn').setAttribute('aria-expanded','false');
+  if($('detail').hidden && !$('quoteDrawer').classList.contains('open')) document.body.style.overflow = '';
+}
+
+/* ---------- chips activos y contador ---------- */
+const LABELS = {q:'Búsqueda', model:'Modelo', category:'Categoría', brand:'Marca', machine:'Máquina', presentation:'Presentación', availability:'Disponibilidad'};
 function renderChips(){
   const active = [];
-  if(state.q) active.push(['q', `Búsqueda: ${state.q}`]);
-  if(state.category) active.push(['category', state.category]);
-  if(state.brand) active.push(['brand', state.brand]);
-  if(state.machine) active.push(['machine', state.machine]);
-  if(state.availability) active.push(['availability', AVAILABILITY_LABEL[state.availability]||state.availability]);
+  if(state.q) active.push(['q', `${LABELS.q}: ${state.q}`]);
+  FILTER_KEYS.forEach(k => { if(state[k]) active.push([k, `${LABELS[k]}: ${k==='availability' ? (AVAILABILITY_LABEL[state[k]]||state[k]) : state[k]}`]); });
   $('chips').innerHTML = active.map(([k,label]) =>
-    `<button type="button" class="chip" data-clear="${k}" aria-label="Quitar filtro ${esc(label)}">${esc(label)}<span class="x" aria-hidden="true">×</span></button>`).join('');
+    `<button type="button" class="chip" data-clear="${k}" aria-label="Quitar filtro ${esc(label)}">${esc(label)}<span class="x" aria-hidden="true">×</span></button>`).join('')
+    + (active.length ? `<button type="button" class="chip clear-all" data-clear="*">Limpiar todo</button>` : '');
+}
+function renderCount(total){
+  const shown = Math.min(state.shown, total);
+  $('resultCount').textContent = total
+    ? `Mostrando ${shown} de ${total} ${total === 1 ? 'repuesto' : 'repuestos'}`
+    : `0 de ${ALL.length} repuestos`;
 }
 
-/* ---------- tarjetas ---------- */
-function cardHtml(p, i=0){
-  const img = p.images[0];
+/* ---------- resultados: lista y cuadrícula ---------- */
+function rowHtml(p, i=0){
   const app = applicationText(p);
-  const appLine = app
-    ? `${p.compat.length ? 'Aplicación registrada: ' : 'Modelos: '}${esc(app)}`
-    : 'Compatibilidad por confirmar con número de serie.';
-  return `<article class="product" data-tilt style="--i:${i}">
-    <a class="product-image" href="#/repuesto/${esc(p.slug)}" aria-label="Ver ficha de ${esc(p.name)}${p.code ? ' ' + esc(p.code) : ''}">
-      <img src="${esc(img.src)}" alt="${esc(img.alt)}" width="${img.w}" height="${img.h}" loading="lazy" decoding="async">
+  const wa = waHref(quoteMessage(p));
+  return `<article class="product row" style="--i:${i}">
+    <a class="row-main" href="#/repuesto/${esc(p.slug)}">
+      <img class="row-thumb" src="${esc(thumbOf(p))}" alt="" width="64" height="64" loading="lazy" decoding="async">
+      <span class="row-text">
+        <b>${esc(p.name)}</b>
+        ${app ? `<span class="row-sub">${esc(app)}</span>` : ''}
+        <span class="row-code">${p.code ? `Código ${esc(p.code)}` : 'Sin código'}${p.brand ? ` · ${esc(p.brand)}` : ''}</span>
+      </span>
+    </a>
+    ${wa ? `<a class="row-wa" href="${esc(wa)}" target="_blank" rel="noopener" aria-label="Cotizar ${esc(p.name)}${p.code ? ' ' + esc(p.code) : ''} por WhatsApp">${WA_ICON}</a>`
+         : `<a class="row-wa" href="#solicitar" data-quote="${esc(p.slug)}" aria-label="Solicitar cotización de ${esc(p.name)}">${icon('mail')}</a>`}
+  </article>`;
+}
+function cardHtml(p, i=0){
+  const app = applicationText(p);
+  return `<article class="product card" data-tilt style="--i:${i}">
+    <a class="card-img" href="#/repuesto/${esc(p.slug)}" aria-label="Ver ficha de ${esc(p.name)}${p.code ? ' ' + esc(p.code) : ''}">
+      <img src="${esc(thumbOf(p))}" alt="${esc(p.images[0].alt)}" width="${p.images[0].w}" height="${p.images[0].h}" loading="lazy" decoding="async">
       ${p.featured ? '<span class="ribbon">Destacado</span>' : ''}
     </a>
-    <div class="product-body">
-      <div class="meta"><span>${esc(p.category)}</span>${p.brand ? `<span class="marca">${esc(p.brand)}</span>` : ''}</div>
+    <div class="card-body">
+      <span class="card-meta">${esc(p.category)}${p.brand ? ` · <b>${esc(p.brand)}</b>` : ''}</span>
       <h3><a href="#/repuesto/${esc(p.slug)}">${esc(p.name)}</a></h3>
-      ${p.code ? `<div class="code">Código ${esc(p.code)}</div>` : ''}
-      <p>${appLine}</p>
-      <div class="tags">
-        <span class="availability">${esc(AVAILABILITY_LABEL[p.availability]||p.availability)}</span>
-        <span class="price">${esc(priceLabel(p))}</span>
-      </div>
-      <div class="product-actions">
-        <a class="btn btn-ghost" href="#/repuesto/${esc(p.slug)}">Ver detalles</a>
-        ${quoteCta(p,'btn-primary')}
+      ${app ? `<span class="card-models">${esc(app)}</span>` : ''}
+      <span class="code">${p.code ? `Código ${esc(p.code)}` : 'Consultar código'}</span>
+      <div class="card-actions">
+        ${quoteCta(p, 'btn-primary btn-sm', 'Cotizar')}
+        <button type="button" class="iconbtn" data-add="${esc(p.slug)}" aria-label="Agregar ${esc(p.name)} a mi cotización" title="Agregar a mi cotización">${icon('plus')}</button>
       </div>
     </div>
   </article>`;
 }
-
 function skeletons(n){
   return Array.from({length:n}, () =>
     `<div class="skeleton" aria-hidden="true"><div class="sk-img"></div><div class="sk-body">
       <div class="sk-line" style="width:35%"></div><div class="sk-line" style="width:75%"></div>
-      <div class="sk-line" style="width:55%"></div><div class="sk-line" style="width:45%"></div></div></div>`).join('');
+      <div class="sk-line" style="width:55%"></div></div></div>`).join('');
+}
+function noResultsHtml(){
+  const q = state.q.trim();
+  const ask = waHref(q ? `Hola, busco el repuesto: ${q}. ¿Lo tienen disponible?` : GENERIC_WA);
+  return `<div class="state">
+    <b>${q ? `No encontramos «${esc(q)}»` : 'No hay repuestos con esos filtros'}</b>
+    Prueba con menos filtros o escribe el código tal como aparece en la pieza. Si no está en el catálogo, pídelo y lo buscamos.
+    <div class="row-btns">
+      ${ask ? `<a class="btn btn-primary" href="${esc(ask)}" target="_blank" rel="noopener">${WA_ICON}Pídelo por WhatsApp</a>` : ''}
+      <a class="btn btn-light" href="#solicitar">Enviar solicitud</a>
+      <button type="button" class="btn btn-light" data-clear="*">Limpiar filtros</button>
+    </div></div>`;
 }
 
 function render(){
   const box = $('products');
   try{
+    writeStateToUrl();
     if(!ALL.length){
       box.innerHTML = `<div class="state"><b>Catálogo en preparación</b>
         Aún no hay repuestos publicados. Cuéntanos qué necesitas y te ayudamos a ubicarlo.
         <div><a class="btn btn-primary" href="#solicitar">Solicitar un repuesto</a></div></div>`;
-      $('pager').hidden = true; $('resultCount').textContent = ''; renderChips(); return;
+      $('moreWrap').hidden = true; $('resultCount').textContent = ''; renderChips(); return;
     }
-    const list = filtered();
-    const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
-    if(state.page > pages) state.page = pages;
-    const slice = list.slice((state.page-1)*PER_PAGE, state.page*PER_PAGE);
-
-    if(!list.length){
-      box.innerHTML = `<div class="state"><b>No encontramos resultados</b>
-        Prueba con menos filtros o escribe el código tal como aparece en la pieza.
-        Si no está en el catálogo, envíanos el código o una fotografía y lo buscamos.
-        <div><a class="btn btn-primary" href="#solicitar">Solicitar este repuesto</a></div></div>`;
-    } else {
-      box.innerHTML = slice.map((p,i) => cardHtml(p, i)).join('');
-    }
-    $('resultCount').textContent = list.length
-      ? `${list.length} ${list.length === 1 ? 'repuesto' : 'repuestos'}${pages > 1 ? ` · página ${state.page} de ${pages}` : ''}`
-      : '0 repuestos';
+    currentList = filtered();
+    const slice = currentList.slice(0, state.shown);
+    box.dataset.view = state.view;
+    box.innerHTML = currentList.length
+      ? slice.map((p,i) => state.view === 'list' ? rowHtml(p,i) : cardHtml(p,i)).join('')
+      : noResultsHtml();
+    renderCount(currentList.length);
+    const more = $('moreWrap');
+    more.hidden = currentList.length <= state.shown;
+    if(!more.hidden) $('moreBtn').textContent = `Ver más repuestos (${currentList.length - state.shown} restantes)`;
     renderChips();
-    renderPager(pages);
+    renderModelChips();
+    renderFilterPanel();
+    document.querySelectorAll('.viewbtn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
+    $('sort').value = state.sort;
+    $('searchClear').hidden = !state.q;
+    if($('search').value !== state.q) $('search').value = state.q;
   } catch(err){
     console.error(err);
     box.innerHTML = `<div class="state" data-kind="error"><b>No pudimos mostrar el catálogo</b>
       Ocurrió un problema al cargar los repuestos. Recarga la página o escríbenos para ayudarte.
       <div><a class="btn btn-primary" href="#solicitar">Solicitar un repuesto</a></div></div>`;
-    $('pager').hidden = true;
+    $('moreWrap').hidden = true;
   }
 }
-
-function renderPager(pages){
-  const pager = $('pager');
-  if(pages <= 1){ pager.hidden = true; pager.innerHTML = ''; return; }
-  pager.hidden = false;
-  let html = `<button type="button" data-page="${state.page-1}" ${state.page===1?'disabled':''} aria-label="Página anterior">‹</button>`;
-  for(let i=1;i<=pages;i++){
-    html += `<button type="button" data-page="${i}" ${i===state.page?'aria-current="true"':''} aria-label="Página ${i}">${i}</button>`;
-  }
-  html += `<button type="button" data-page="${state.page+1}" ${state.page===pages?'disabled':''} aria-label="Página siguiente">›</button>`;
-  pager.innerHTML = html;
+function setFilter(key, value, opts={}){
+  state[key] = value;
+  state.shown = PAGE_STEP;
+  render();
+  if(opts.scroll !== false) goCatalog();
+}
+function clearAll(){
+  state.q = ''; FILTER_KEYS.forEach(k => state[k] = ''); state.shown = PAGE_STEP;
+  $('search').value = '';
+  render();
 }
 
-/* ---------- categorías ---------- */
+/* ---------- categorías (sección superior) ---------- */
 function renderCategories(){
   const counts = {};
   ALL.forEach(p => counts[p.category] = (counts[p.category]||0) + 1);
@@ -264,32 +415,24 @@ function renderMarquee(){
   $('marqueeClip').innerHTML = `<div class="marquee">${track}${track}</div>`;
 }
 
-/* ---------- sugerencias de búsqueda ---------- */
+/* ---------- sugerencias de búsqueda (con miniatura) ---------- */
 function buildSuggestions(q){
-  const n = normalize(q), c = compact(q);
+  const c = compact(q);
   if(!c) return [];
-  const out = [];
-  for(const p of ALL){
-    if(p.code && compact(p.code).includes(c)) out.push({kind:'product', type:'Código', main:p.code, sub:p.name, slug:p.slug});
-    else if(normalize(p.name).includes(n)) out.push({kind:'product', type:'Repuesto', main:p.name, sub:p.code||p.category, slug:p.slug});
-    else if(compact(haystack(p)).includes(c)) out.push({kind:'product', type:'Repuesto', main:p.name, sub:p.code||p.category, slug:p.slug});
-  }
-  for(const b of [...new Set(ALL.map(p => p.brand).filter(Boolean))])
-    if(normalize(b).includes(n)) out.push({kind:'brand', type:'Marca', main:b, sub:'Ver repuestos de la marca', value:b});
-  for(const m of [...new Set(ALL.flatMap(machinesOf))])
-    if(normalize(m).includes(n) || compact(m).includes(c)) out.push({kind:'machine', type:'Máquina', main:m, sub:'Ver repuestos compatibles', value:m});
-  for(const cat of CATEGORIES)
-    if(normalize(cat).includes(n)) out.push({kind:'category', type:'Línea', main:cat, sub:'Ver la línea completa', value:cat});
-  return out.slice(0, 7);
+  const hits = ALL.filter(p => matchesQuery(p, q)).sort((a,b) => scoreOf(b,q) - scoreOf(a,q) || (a.item||0) - (b.item||0));
+  const out = hits.slice(0, SUGGESTIONS).map(p => ({kind:'product', slug:p.slug, main:p.name, code:p.code, sub:applicationText(p), thumb:thumbOf(p)}));
+  if(hits.length > SUGGESTIONS) out.push({kind:'all', main:`Ver los ${hits.length} resultados`, q});
+  return out;
 }
-
 function attachSuggest(input, list){
   let items = [], sel = -1;
   const close = () => { list.dataset.open = 'false'; list.innerHTML = ''; input.setAttribute('aria-expanded','false'); input.removeAttribute('aria-activedescendant'); sel = -1; };
   const paint = () => {
-    list.innerHTML = items.map((it,i) =>
-      `<li role="option" id="${list.id}-${i}" ${i===sel?'aria-selected="true"':''} data-i="${i}">
-        <b>${esc(it.main)}</b><span>${esc(it.sub)}</span><span class="k">${esc(it.type)}</span></li>`).join('');
+    list.innerHTML = items.map((it,i) => it.kind === 'product'
+      ? `<li role="option" id="${list.id}-${i}" ${i===sel?'aria-selected="true"':''} data-i="${i}">
+          <img src="${esc(it.thumb)}" alt="" width="40" height="40" loading="lazy">
+          <span class="s-text"><b>${esc(it.main)}</b><span>${it.code ? `Código ${esc(it.code)}` : ''}${it.sub ? ` · ${esc(it.sub)}` : ''}</span></span></li>`
+      : `<li role="option" class="more" id="${list.id}-${i}" ${i===sel?'aria-selected="true"':''} data-i="${i}">${esc(it.main)} →</li>`).join('');
     list.dataset.open = items.length ? 'true' : 'false';
     input.setAttribute('aria-expanded', String(!!items.length));
     if(sel >= 0) input.setAttribute('aria-activedescendant', `${list.id}-${sel}`); else input.removeAttribute('aria-activedescendant');
@@ -297,14 +440,9 @@ function attachSuggest(input, list){
   const pick = it => {
     close();
     if(it.kind === 'product'){
-      input.value = it.main; state.q = it.main; state.page = 1; $('search').value = it.main; render();
       location.hash = '#/repuesto/' + it.slug;
-    } else if(it.kind === 'brand'){
-      input.value = ''; state.q = ''; state.brand = it.value; state.page = 1; $('search').value=''; $('brand').value = it.value; render(); goCatalog();
-    } else if(it.kind === 'machine'){
-      input.value = ''; state.q = ''; state.machine = it.value; state.page = 1; $('search').value=''; $('machine').value = it.value; render(); goCatalog();
     } else {
-      input.value = ''; state.q = ''; state.category = it.value; state.page = 1; $('search').value=''; $('category').value = it.value; render(); goCatalog();
+      state.q = it.q; state.shown = PAGE_STEP; $('search').value = it.q; input.value = it.q; render(); goCatalog();
     }
   };
   input.addEventListener('input', () => { items = buildSuggestions(input.value); sel = -1; paint(); });
@@ -320,11 +458,88 @@ function attachSuggest(input, list){
   list.addEventListener('mousedown', e => { e.preventDefault(); });
   list.addEventListener('click', e => { const li = e.target.closest('[data-i]'); if(li) pick(items[Number(li.dataset.i)]); });
 }
-function goCatalog(){ document.getElementById('catalogo').scrollIntoView({behavior: REDUCED ? 'auto' : 'smooth'}); }
+function goCatalog(){
+  const top = document.getElementById('catalogo').getBoundingClientRect().top + window.scrollY - 60;
+  window.scrollTo({top, behavior: REDUCED ? 'auto' : 'smooth'});
+}
+
+/* ---------- lista de cotización (varios repuestos, sin precios) ---------- */
+let quote = store.get('dgp-cotizacion', []).filter(x => x && x.slug);
+function quoteItems(){ return quote.map(x => ({...x, p: ALL.find(p => p.slug === x.slug)})).filter(x => x.p); }
+function saveQuote(){ store.set('dgp-cotizacion', quote); renderQuoteUi(); }
+function addToQuote(slug, qty=1){
+  const it = quote.find(x => x.slug === slug);
+  if(it) it.qty = Math.min(99, (it.qty||1) + qty); else quote.push({slug, qty});
+  saveQuote();
+  const p = ALL.find(x => x.slug === slug);
+  toast(`${p ? p.name : 'Repuesto'} agregado a tu cotización`);
+}
+function setQty(slug, qty){
+  const it = quote.find(x => x.slug === slug); if(!it) return;
+  it.qty = Math.max(1, Math.min(99, Number(qty)||1)); saveQuote();
+}
+function removeFromQuote(slug){ quote = quote.filter(x => x.slug !== slug); saveQuote(); }
+function quoteListMessage(){
+  const items = quoteItems();
+  const lines = items.map((x,i) => `${i+1}. ${x.p.name}${x.p.code ? ` — código ${x.p.code}` : ''} — cantidad: ${x.qty}`);
+  return `Hola, deseo cotizar los siguientes repuestos:\n${lines.join('\n')}\n¿Podrían confirmarme precio y disponibilidad?`;
+}
+function renderQuoteUi(){
+  const items = quoteItems();
+  const n = items.reduce((a,x) => a + (x.qty||1), 0);
+  const fab = $('quoteFab');
+  fab.hidden = items.length === 0;
+  $('quoteCount').textContent = n;
+  const drawer = $('quoteDrawer');
+  $('quoteBody').innerHTML = items.length ? items.map(x => `<div class="qitem" data-slug="${esc(x.slug)}">
+      <img src="${esc(thumbOf(x.p))}" alt="" width="56" height="56" loading="lazy">
+      <div class="q-text"><a href="#/repuesto/${esc(x.p.slug)}"><b>${esc(x.p.name)}</b></a><span>${x.p.code ? `Código ${esc(x.p.code)}` : ''}${x.p.brand ? ` · ${esc(x.p.brand)}` : ''}</span></div>
+      <div class="qty" role="group" aria-label="Cantidad de ${esc(x.p.name)}">
+        <button type="button" data-qty="-1" aria-label="Quitar una unidad">${icon('minus')}</button>
+        <input type="number" min="1" max="99" value="${x.qty}" aria-label="Cantidad" inputmode="numeric">
+        <button type="button" data-qty="1" aria-label="Agregar una unidad">${icon('plus')}</button>
+      </div>
+      <button type="button" class="qremove" data-remove="${esc(x.slug)}" aria-label="Quitar ${esc(x.p.name)} de la cotización">${icon('trash')}</button>
+    </div>`).join('')
+    : `<div class="qempty">${icon('cart')}<b>Tu lista está vacía</b><p>Agrega repuestos desde el catálogo con el botón <strong>+</strong> o desde cada ficha. Luego los envías todos juntos por WhatsApp.</p></div>`;
+  const wa = items.length ? waHref(quoteListMessage()) : null;
+  const send = $('quoteSend');
+  if(wa){ send.href = wa; send.removeAttribute('aria-disabled'); send.classList.remove('is-disabled'); }
+  else { send.href = '#catalogo'; send.setAttribute('aria-disabled','true'); send.classList.add('is-disabled'); }
+  $('quoteClear').hidden = !items.length;
+  $('quoteTitle').textContent = items.length ? `Mi cotización (${n})` : 'Mi cotización';
+  const mb = $('mbarQuote');
+  if(mb){ mb.innerHTML = items.length ? `${icon('cart')}Mi cotización (${n})` : 'Cotizar'; mb.setAttribute('href', items.length ? '#' : '#solicitar'); mb.dataset.open = items.length ? '1' : ''; }
+  drawer.dataset.count = n;
+}
+let lastQuoteFocus = null;
+function openQuote(){
+  renderQuoteUi();
+  $('quoteDrawer').classList.add('open'); $('quoteBackdrop').hidden = false;
+  document.body.style.overflow = 'hidden';
+  lastQuoteFocus = document.activeElement;
+  $('quoteClose').focus();
+}
+function closeQuote(){
+  $('quoteDrawer').classList.remove('open'); $('quoteBackdrop').hidden = true;
+  if($('detail').hidden) document.body.style.overflow = '';
+  if(lastQuoteFocus){ try{ lastQuoteFocus.focus(); }catch(e){} }
+}
+let toastTimer = null;
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
 
 /* ---------- ficha de producto ---------- */
 let lastFocus = null;
 
+function relatedTo(p){
+  const fams = familiesOf(p);
+  let rel = ALL.filter(o => o.slug !== p.slug && fams.length && familiesOf(o).some(f => fams.includes(f)));
+  if(rel.length < 4) rel = rel.concat(ALL.filter(o => o.slug !== p.slug && !rel.includes(o) && o.category === p.category));
+  return rel.slice(0, 4);
+}
 function detailHtml(p){
   const img = p.images[0];
   const compatRows = p.compat.length
@@ -332,21 +547,22 @@ function detailHtml(p){
     : (p.models ? '' : `<tr><th>Aplicación registrada</th><td>Pendiente de confirmar con el número de serie.</td></tr>`);
   const infoRows = [
     p.brand && `<tr><th>Marca</th><td>${esc(p.brand)}</td></tr>`,
-    p.models && `<tr><th>Modelos / aplicación</th><td>${esc(p.models)}</td></tr>`,
+    p.models && `<tr><th>Modelos compatibles</th><td>${esc(p.models)}</td></tr>`,
     p.machineType && `<tr><th>Máquina</th><td>${esc(p.machineType)}</td></tr>`,
     p.presentation && `<tr><th>Presentación</th><td>${esc(p.presentation)}</td></tr>`,
     p.description && `<tr><th>Descripción</th><td>${esc(p.description)}</td></tr>`
   ].filter(Boolean).join('');
   const specRows = (p.specs||[]).map(s => `<tr><th>${esc(s.k)}</th><td>${esc(s.v)}</td></tr>`).join('');
-  const similar = ALL.filter(o => o.slug !== p.slug && (
-      o.category === p.category ||
-      o.compat.some(c => p.compat.some(d => c.machine && c.machine === d.machine))
-    )).slice(0, 3);
+  const related = relatedTo(p);
+  const list = currentList.length ? currentList : ALL;
+  const idx = list.findIndex(x => x.slug === p.slug);
+  const prev = idx > 0 ? list[idx-1] : null, next = idx >= 0 && idx < list.length-1 ? list[idx+1] : null;
   const thumbs = p.images.length > 1
     ? `<div class="thumbs">${p.images.map((im,i) =>
-        `<button type="button" data-thumb="${i}" ${i===0?'aria-current="true"':''} aria-label="Ver fotografía ${i+1}">
+        `<button type="button" data-thumb="${i}" ${i===0?'aria-current="true"':''} aria-label="Ver imagen ${i+1}">
           <img src="${esc(im.src)}" alt="" width="${im.w}" height="${im.h}" loading="lazy"></button>`).join('')}</div>`
     : '';
+  const inQuote = quote.find(x => x.slug === p.slug);
   return `<div class="detail-box">
     <div class="detail-bar">
       <nav aria-label="Ruta de navegación">
@@ -354,24 +570,25 @@ function detailHtml(p){
         <a href="#catalogo">Catálogo</a><span aria-hidden="true">/</span>
         <span>${esc(p.name)}</span>
       </nav>
-      <button class="detail-close" id="detailClose" aria-label="Cerrar ficha">✕</button>
+      <div class="detail-nav">
+        <button type="button" class="navbtn" id="prevBtn" ${prev ? `data-go="${esc(prev.slug)}" title="${esc(prev.name)}"` : 'disabled'} aria-label="Repuesto anterior">${icon('left')}</button>
+        <span class="navpos">${idx >= 0 ? `${idx+1} / ${list.length}` : ''}</span>
+        <button type="button" class="navbtn" id="nextBtn" ${next ? `data-go="${esc(next.slug)}" title="${esc(next.name)}"` : 'disabled'} aria-label="Repuesto siguiente">${icon('right')}</button>
+        <button class="detail-close" id="detailClose" aria-label="Cerrar ficha">✕</button>
+      </div>
     </div>
     <div class="detail-grid">
       <div class="gallery">
-        <button class="main" id="zoomBtn" aria-label="Ampliar fotografía de ${esc(p.name)}">
+        <button class="main" id="zoomBtn" aria-label="Ampliar imagen de ${esc(p.name)}">
           <img id="detailImg" src="${esc(img.full || img.src)}" alt="${esc(img.alt)}" width="${img.w}" height="${img.h}" decoding="async">
-          <span class="zoomhint">Clic para ampliar</span>
+          <span class="zoomhint">Ampliar</span>
         </button>
         ${thumbs}
       </div>
       <div class="detail-body">
         <span class="eyebrow" style="color:var(--teal-dark)">${esc(p.category)}${p.brand ? ` · ${esc(p.brand)}` : ''}</span>
         <h2 id="detailTitle">${esc(p.name)}</h2>
-        ${p.code ? `<div class="code">Código ${esc(p.code)}</div>` : ''}
-        <div class="detail-tools">
-          ${p.code ? `<button type="button" class="tool" id="copyCode" data-code="${esc(p.code)}">${icon('copy')}Copiar código</button>` : ''}
-          <button type="button" class="tool" id="shareBtn">${icon('share')}Compartir</button>
-        </div>
+        ${p.code ? `<div class="codeline"><span class="code">Código ${esc(p.code)}</span><button type="button" class="tool" id="copyCode" data-code="${esc(p.code)}">${icon('copy')}Copiar código</button></div>` : ''}
         <table class="spec">
           <tbody>
             ${infoRows}
@@ -385,11 +602,12 @@ function detailHtml(p){
         <p class="warn"><b>Importante:</b> ${esc(SERIAL_WARNING)}</p>
         <div class="detail-actions">
           ${quoteCta(p,'btn-primary')}
-          <a class="btn btn-light" href="#solicitar" data-quote="${esc(p.slug)}">Enviar solicitud</a>
+          <button type="button" class="btn btn-light" id="addQuoteBtn" data-add="${esc(p.slug)}">${icon(inQuote ? 'check' : 'plus')}${inQuote ? `En mi cotización (${inQuote.qty})` : 'Agregar a mi cotización'}</button>
+          <button type="button" class="tool" id="shareBtn">${icon('share')}Compartir</button>
         </div>
       </div>
     </div>
-    ${similar.length ? `<div class="similar"><h3>Productos similares</h3><div class="products">${similar.map((s,i)=>cardHtml(s,i)).join('')}</div></div>` : ''}
+    ${related.length ? `<div class="similar"><h3>Repuestos relacionados</h3><div class="products grid" data-view="grid">${related.map((s,i)=>cardHtml(s,i)).join('')}</div></div>` : ''}
   </div>`;
 }
 
@@ -397,12 +615,14 @@ function openDetail(slug){
   const p = ALL.find(x => x.slug === slug);
   if(!p){ closeDetail(true); return; }
   const box = $('detail');
+  const wasOpen = !box.hidden;
   box.innerHTML = detailHtml(p);
   box.dataset.img = 0;
   box.hidden = false;
   box.classList.add('open');
+  box.scrollTop = 0;
   document.body.style.overflow = 'hidden';
-  lastFocus = document.activeElement;
+  if(!wasOpen) lastFocus = document.activeElement;
   $('detailClose').focus();
   setMeta(p);
 }
@@ -412,7 +632,7 @@ function closeDetail(silent){
   box.classList.remove('open');
   box.hidden = true;
   box.innerHTML = '';
-  document.body.style.overflow = '';
+  if(!$('quoteDrawer').classList.contains('open') && !$('filtersPanel').classList.contains('open')) document.body.style.overflow = '';
   setMeta(null);
   if(lastFocus && !silent){ try{ lastFocus.focus(); }catch(e){} }
   lastFocus = null;
@@ -420,6 +640,13 @@ function closeDetail(silent){
 function currentProduct(){
   const slug = (location.hash.match(/^#\/repuesto\/(.+)$/)||[])[1];
   return slug ? ALL.find(x => x.slug === decodeURIComponent(slug)) : null;
+}
+function goSibling(dir){
+  const p = currentProduct(); if(!p) return;
+  const list = currentList.length ? currentList : ALL;
+  const idx = list.findIndex(x => x.slug === p.slug);
+  const t = list[idx + dir];
+  if(t) location.hash = '#/repuesto/' + t.slug;
 }
 /** Título, descripción y Open Graph por producto. */
 function setMeta(p){
@@ -443,7 +670,7 @@ function setMeta(p){
   set('meta[name=description]', d);
   set('meta[property="og:title"]', t);
   set('meta[property="og:description"]', d);
-  set('meta[property="og:image"]', abs(p.images[0].src));
+  set('meta[property="og:image"]', abs(fullOf(p)));
   set('meta[property="og:url"]', productUrl(p));
   if(canon) canon.href = productUrl(p);
 }
@@ -514,8 +741,8 @@ function renderContact(){
   const wa = waHref(GENERIC_WA);
   if(wa){ fab.href = wa; fab.hidden = false; } else { fab.hidden = true; }
   $('mbar').innerHTML = wa
-    ? `<a class="btn btn-primary" href="${esc(wa)}" target="_blank" rel="noopener">${WA_ICON}WhatsApp</a><a class="btn btn-ghost" href="#solicitar">Cotizar</a>`
-    : `<a class="btn btn-ghost" href="#catalogo">Catálogo</a><a class="btn btn-primary" href="#solicitar">Cotizar</a>`;
+    ? `<a class="btn btn-primary" href="${esc(wa)}" target="_blank" rel="noopener">${WA_ICON}WhatsApp</a><a class="btn btn-ghost" id="mbarQuote" href="#solicitar">Cotizar</a>`
+    : `<a class="btn btn-ghost" href="#catalogo">Catálogo</a><a class="btn btn-primary" id="mbarQuote" href="#solicitar">Cotizar</a>`;
 }
 
 /* ---------- mapa: se incrusta solo cuando la sección entra en pantalla ---------- */
@@ -555,7 +782,7 @@ function initSlider(list, interval){
       ${s.href ? `<a class="figlink" href="${esc(s.href)}">${cap}</a>` : cap}
     </figure>`;
   }).join('') + (list.length > 1
-    ? `<div class="dots" role="tablist" aria-label="Diapositivas">${list.map((s,i) => `<button type="button" role="tab" data-go="${i}" aria-selected="${i===0}" aria-label="Ver: ${esc(s.title||('diapositiva '+(i+1)))}"><span></span></button>`).join('')}</div><div class="slide-progress" aria-hidden="true"></div>`
+    ? `<div class="dots" role="tablist" aria-label="Diapositivas">${list.map((s,i) => `<button type="button" role="tab" data-go-slide="${i}" aria-selected="${i===0}" aria-label="Ver: ${esc(s.title||('diapositiva '+(i+1)))}"><span></span></button>`).join('')}</div><div class="slide-progress" aria-hidden="true"></div>`
     : '');
   if(list.length > 1 && !REDUCED) playSlider();
 }
@@ -564,7 +791,7 @@ function showSlide(i){
   if(!slides.length) return;
   sliderIndex = (i + slides.length) % slides.length;
   slides.forEach((s,k) => { s.classList.toggle('is-active', k === sliderIndex); s.setAttribute('aria-hidden', String(k !== sliderIndex)); });
-  document.querySelectorAll('#slider [data-go]').forEach((b,k) => b.setAttribute('aria-selected', String(k === sliderIndex)));
+  document.querySelectorAll('#slider [data-go-slide]').forEach((b,k) => b.setAttribute('aria-selected', String(k === sliderIndex)));
 }
 function playSlider(){
   const box = $('slider');
@@ -593,8 +820,8 @@ function setupSlider(){
   box.addEventListener('focusin', () => { if(sliderList.length > 1) pauseSlider(); });
   box.addEventListener('focusout', e => { if(!box.contains(e.relatedTarget) && sliderList.length > 1 && !REDUCED) playSlider(); });
   box.addEventListener('click', e => {
-    const b = e.target.closest('[data-go]'); if(!b) return;
-    showSlide(Number(b.dataset.go));
+    const b = e.target.closest('[data-go-slide]'); if(!b) return;
+    showSlide(Number(b.dataset.goSlide));
     if(!REDUCED) playSlider();
   });
   document.addEventListener('visibilitychange', () => {
@@ -660,7 +887,7 @@ function injectStructuredData(){
   const list = {'@context':'https://schema.org','@type':'ItemList', name:'Catálogo DOGEPARTS', numberOfItems: ALL.length,
     itemListElement: ALL.map((p,i) => {
       const app = applicationText(p);
-      const item = {'@type':'Product', name:p.name, category:p.category, url: productUrl(p), image: abs(p.images[0].full || p.images[0].src),
+      const item = {'@type':'Product', name:p.name, category:p.category, url: productUrl(p), image: abs(fullOf(p)),
         description: `${p.name}${p.code ? `, código ${p.code}` : ''}. ${app
           ? (p.compat.length ? 'Aplicación registrada: ' : 'Modelos: ') + app + '.'
           : 'Compatibilidad pendiente de confirmar mediante el número de serie del equipo.'} ${SERIAL_WARNING}`};
@@ -686,12 +913,10 @@ function showError(inputId, errId, msg){
   else { input.removeAttribute('aria-invalid'); err.textContent=''; err.style.display='none'; }
   return !msg;
 }
-
 function validateForm(){
   let ok = true;
   ok = showError('rName','errName', $('rName').value.trim() ? '' : 'Indica tu nombre o el de tu empresa.') && ok;
   ok = showError('rMsg','errMsg', $('rMsg').value.trim() ? '' : 'Describe el repuesto que necesitas.') && ok;
-
   const phone = $('rPhone').value.trim(), mail = $('rMail').value.trim();
   let phoneMsg = '', mailMsg = '';
   if(phone && phone.replace(/\D/g,'').length < 6) phoneMsg = 'El teléfono parece incompleto.';
@@ -699,7 +924,6 @@ function validateForm(){
   if(!phone && !mail){ phoneMsg = phoneMsg || 'Indica un teléfono o un correo.'; mailMsg = mailMsg || 'Indica un correo o un teléfono.'; }
   ok = showError('rPhone','errPhone', phoneMsg) && ok;
   ok = showError('rMail','errMail', mailMsg) && ok;
-
   const files = [...$('rFiles').files];
   let fileMsg = '';
   if(files.length > MAX_FILES) fileMsg = `Puedes adjuntar como máximo ${MAX_FILES} archivos.`;
@@ -712,7 +936,6 @@ function validateForm(){
   ok = showError('rFiles','errFiles', fileMsg) && ok;
   return ok;
 }
-
 function requestSummary(){
   const files = [...$('rFiles').files];
   const rows = [
@@ -729,7 +952,6 @@ function requestSummary(){
   if(files.length) txt += `\n\nAdjuntos a enviar: ${files.map(f => f.name).join(', ')}`;
   return txt;
 }
-
 function renderNotice(kind, html){
   const n = $('notice');
   n.dataset.kind = kind;
@@ -737,7 +959,6 @@ function renderNotice(kind, html){
   n.style.display = 'block';
   n.focus();
 }
-
 $('requestForm').addEventListener('submit', e => {
   e.preventDefault();
   const btn = $('submitBtn');
@@ -776,7 +997,6 @@ $('requestForm').addEventListener('submit', e => {
     btn.disabled = false; btn.textContent = 'Preparar solicitud';
   }
 });
-
 $('rFiles').addEventListener('change', () => {
   const files = [...$('rFiles').files];
   $('filesHint').textContent = files.length
@@ -785,44 +1005,73 @@ $('rFiles').addEventListener('change', () => {
   validateForm();
 });
 
-/* ---------- eventos ---------- */
+/* ---------- eventos del catálogo ---------- */
 $('heroForm').addEventListener('submit', e => {
   e.preventDefault();
-  state.q = $('heroSearch').value;
-  state.page = 1;
+  state.q = $('heroSearch').value; state.shown = PAGE_STEP;
   $('search').value = state.q;
   render();
   goCatalog();
 });
-
-$('search').addEventListener('input', e => { state.q = e.target.value; state.page = 1; render(); });
-['category','brand','machine','availability'].forEach(id =>
-  $(id).addEventListener('change', e => { state[id] = e.target.value; state.page = 1; render(); }));
-
-$('chips').addEventListener('click', e => {
-  const b = e.target.closest('[data-clear]'); if(!b) return;
-  const k = b.dataset.clear;
-  state[k] = ''; state.page = 1;
-  if(k === 'q') $('search').value = ''; else $(k).value = '';
-  render();
+$('search').addEventListener('input', e => { state.q = e.target.value; state.shown = PAGE_STEP; render(); });
+$('searchClear').addEventListener('click', () => { state.q = ''; state.shown = PAGE_STEP; $('search').value = ''; render(); $('search').focus(); });
+$('sort').addEventListener('change', e => { state.sort = e.target.value; render(); });
+$('moreBtn').addEventListener('click', () => { state.shown += PAGE_STEP; render(); });
+$('modelChips').addEventListener('click', e => {
+  const b = e.target.closest('[data-model]'); if(!b) return;
+  setFilter('model', b.dataset.model === state.model ? '' : b.dataset.model, {scroll:false});
 });
-
-$('pager').addEventListener('click', e => {
-  const b = e.target.closest('[data-page]'); if(!b || b.disabled) return;
-  state.page = Number(b.dataset.page);
-  render();
-  goCatalog();
+$('filterGroups').addEventListener('click', e => {
+  const so = e.target.closest('[data-sort]');
+  if(so){ state.sort = so.dataset.sort; render(); return; }
+  const b = e.target.closest('[data-filter]'); if(!b) return;
+  setFilter(b.dataset.filter, state[b.dataset.filter] === b.dataset.value ? '' : b.dataset.value, {scroll:false});
 });
-
+$('filtersBtn').addEventListener('click', openFilters);
+$('fpClose').addEventListener('click', closeFilters);
+$('fpApply').addEventListener('click', () => { closeFilters(); goCatalog(); });
+$('fpClear').addEventListener('click', () => { clearAll(); });
+$('filtersBackdrop').addEventListener('click', closeFilters);
+document.querySelectorAll('.viewbtn').forEach(b => b.addEventListener('click', () => {
+  state.view = b.dataset.view; store.set('dgp-vista', state.view); render();
+}));
 $('categoryGrid').addEventListener('click', e => {
   const b = e.target.closest('[data-category]'); if(!b) return;
-  state.category = b.dataset.category; state.q = ''; state.page = 1;
-  $('category').value = state.category; $('search').value = '';
-  render();
-  goCatalog();
+  state.q = ''; $('search').value = '';
+  setFilter('category', b.dataset.category);
+});
+
+/* lista de cotización */
+$('quoteFab').addEventListener('click', openQuote);
+$('quoteClose').addEventListener('click', closeQuote);
+$('quoteBackdrop').addEventListener('click', closeQuote);
+$('quoteClear').addEventListener('click', () => { quote = []; saveQuote(); });
+$('quoteSend').addEventListener('click', e => { if(e.currentTarget.getAttribute('aria-disabled') === 'true'){ e.preventDefault(); } });
+$('quoteBody').addEventListener('click', e => {
+  const item = e.target.closest('.qitem'); if(!item) return;
+  const slug = item.dataset.slug;
+  const q = e.target.closest('[data-qty]');
+  if(q){ const it = quote.find(x => x.slug === slug); setQty(slug, (it ? it.qty : 1) + Number(q.dataset.qty)); return; }
+  if(e.target.closest('[data-remove]')){ removeFromQuote(slug); return; }
+  if(e.target.closest('a')){ closeQuote(); }
+});
+$('quoteBody').addEventListener('change', e => {
+  const inp = e.target.closest('input[type=number]'); if(!inp) return;
+  setQty(inp.closest('.qitem').dataset.slug, inp.value);
 });
 
 document.addEventListener('click', e => {
+  const clear = e.target.closest('[data-clear]');
+  if(clear){
+    const k = clear.dataset.clear;
+    if(k === '*') clearAll();
+    else { if(k === 'q'){ state.q = ''; $('search').value = ''; } else state[k] = ''; state.shown = PAGE_STEP; render(); }
+    return;
+  }
+  const add = e.target.closest('[data-add]');
+  if(add){ addToQuote(add.dataset.add); const p = currentProduct(); if(p && add.id === 'addQuoteBtn'){ const it = quote.find(x => x.slug === p.slug); add.innerHTML = `${icon('check')}En mi cotización (${it.qty})`; } return; }
+  const mq = e.target.closest('#mbarQuote');
+  if(mq && mq.dataset.open){ e.preventDefault(); openQuote(); return; }
   const q = e.target.closest('[data-quote]');
   if(q){
     const p = ALL.find(x => x.slug === q.dataset.quote);
@@ -833,6 +1082,8 @@ document.addEventListener('click', e => {
     }
     return;
   }
+  const go = e.target.closest('[data-go]');
+  if(go){ location.hash = '#/repuesto/' + go.dataset.go; return; }
   if(e.target.closest('#detailClose') || e.target.id === 'detail'){ history.pushState(null,'','#catalogo'); closeDetail(); return; }
   if(e.target.closest('#zoomBtn')){
     const p = currentProduct(); const idx = Number($('detail').dataset.img || 0);
@@ -852,7 +1103,7 @@ document.addEventListener('click', e => {
   }
   const cc = e.target.closest('#copyCode');
   if(cc){
-    navigator.clipboard.writeText(cc.dataset.code).then(() => { cc.innerHTML = icon('copy') + 'Código copiado ✓'; }).catch(() => { cc.innerHTML = icon('copy') + cc.dataset.code; });
+    navigator.clipboard.writeText(cc.dataset.code).then(() => { cc.innerHTML = icon('check') + 'Código copiado'; toast('Código copiado'); }).catch(() => { cc.innerHTML = icon('copy') + cc.dataset.code; });
     return;
   }
   if(e.target.closest('#shareBtn')){
@@ -860,7 +1111,7 @@ document.addEventListener('click', e => {
     const data = {title: `${p.name}${p.code ? ' ' + p.code : ''} · DOGEPARTS SAC`, text: quoteMessage(p), url: productUrl(p).startsWith('http') ? productUrl(p) : location.href};
     const btn = $('shareBtn');
     if(navigator.share){ navigator.share(data).catch(()=>{}); }
-    else { navigator.clipboard.writeText(data.url).then(() => { btn.innerHTML = icon('share') + 'Enlace copiado ✓'; }).catch(()=>{}); }
+    else { navigator.clipboard.writeText(data.url).then(() => { btn.innerHTML = icon('check') + 'Enlace copiado'; toast('Enlace copiado'); }).catch(()=>{}); }
     return;
   }
   if(e.target.closest('#totop')){ window.scrollTo({top:0, behavior: REDUCED ? 'auto' : 'smooth'}); return; }
@@ -868,10 +1119,31 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('keydown', e => {
-  if(e.key !== 'Escape') return;
-  if($('lightbox').classList.contains('open')) { closeLightbox(); return; }
-  if(!$('detail').hidden){ history.pushState(null,'','#catalogo'); closeDetail(); }
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
+  if(e.key === 'Escape'){
+    if($('lightbox').classList.contains('open')) { closeLightbox(); return; }
+    if($('quoteDrawer').classList.contains('open')) { closeQuote(); return; }
+    if($('filtersPanel').classList.contains('open')) { closeFilters(); return; }
+    if(!$('detail').hidden){ history.pushState(null,'','#catalogo'); closeDetail(); }
+    return;
+  }
+  if(!$('detail').hidden && !typing && !$('lightbox').classList.contains('open')){
+    if(e.key === 'ArrowLeft') goSibling(-1);
+    if(e.key === 'ArrowRight') goSibling(1);
+  }
 });
+
+/* deslizar en la ficha (táctil) para pasar de repuesto */
+(() => {
+  let sx = 0, sy = 0, tracking = false;
+  const box = $('detail');
+  box.addEventListener('pointerdown', e => { if(e.pointerType === 'mouse') return; sx = e.clientX; sy = e.clientY; tracking = true; }, {passive:true});
+  box.addEventListener('pointerup', e => {
+    if(!tracking) return; tracking = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if(Math.abs(dx) > 70 && Math.abs(dy) < 50) goSibling(dx < 0 ? 1 : -1);
+  }, {passive:true});
+})();
 
 const menuBtn = $('menuBtn'), primaryNav = $('primaryNav');
 menuBtn.addEventListener('click', () => {
@@ -918,17 +1190,19 @@ function setupScrollEffects(){
 
 /* ---------- arranque ---------- */
 $('year').textContent = new Date().getFullYear();
-$('products').innerHTML = skeletons(2);
+if(window.innerWidth < 420){ $('search').placeholder = 'Código, repuesto o modelo…'; $('heroSearch').placeholder = 'Código, repuesto o modelo…'; }
+$('products').innerHTML = skeletons(4);
 renderMarquee();
 setupSlider();
 setupTilt();
 loadProducts().then(list => {
   ALL = list;
-  fillSelects();
+  readStateFromUrl();
   renderCategories();
   renderContact();
   setupMap();
   render();
+  renderQuoteUi();
   injectStructuredData();
   attachSuggest($('heroSearch'), $('heroSug'));
   attachSuggest($('search'), $('catSug'));
