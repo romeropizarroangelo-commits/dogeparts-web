@@ -153,10 +153,16 @@ const telHref = s => 'tel:' + String(s).replace(/[^\d+]/g,'');
 const hasGeo = () => typeof SITE.lat === 'number' && typeof SITE.lon === 'number';
 const mapSearchUrl = () => SITE.mapUrl || (SITE.address ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(SITE.address) : '');
 const mapDirectionsUrl = () => hasGeo() ? `https://www.google.com/maps/dir/?api=1&destination=${SITE.lat},${SITE.lon}` : mapSearchUrl();
-/** Mapa incrustado de OpenStreetMap (servicio oficial de incrustación, sin clave ni cuenta). */
-const mapEmbedUrl  = () => hasGeo()
-  ? `https://www.openstreetmap.org/export/embed.html?bbox=${(SITE.lon-0.0055).toFixed(6)},${(SITE.lat-0.0040).toFixed(6)},${(SITE.lon+0.0055).toFixed(6)},${(SITE.lat+0.0040).toFixed(6)}&layer=mapnik&marker=${SITE.lat},${SITE.lon}`
-  : '';
+/** Mapa de Google incrustado con el formato oficial de "Compartir → Insertar un mapa" (sin clave de API). */
+function dmsLabel(lat, lon){
+  const f = (v, pos, neg) => { const a = Math.abs(v), d = Math.floor(a), m = Math.floor((a-d)*60), s = ((a-d-m/60)*3600).toFixed(1); return `${d}°${String(m).padStart(2,'0')}'${s.padStart(4,'0')}"${v >= 0 ? pos : neg}`; };
+  return `${f(lat,'N','S')} ${f(lon,'E','W')}`;
+}
+const mapEmbedUrl = () => {
+  if(!hasGeo()) return '';
+  const label = btoa(unescape(encodeURIComponent(dmsLabel(SITE.lat, SITE.lon))));
+  return `https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1950.9!2d${SITE.lon}!3d${SITE.lat}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2z${encodeURIComponent(label)}!5e0!3m2!1ses!2spe!4v1!5m2!1ses!2spe`;
+};
 
 /* ---------- carga de datos (punto único de cambio si algún día hay API) ---------- */
 async function loadProducts(){
@@ -752,7 +758,6 @@ function loadMap(){
   map.insertAdjacentHTML('beforeend', `<iframe src="${esc(mapEmbedUrl())}" title="Mapa de ${esc(SITE.name||'DOGEPARTS SAC')}: ${esc(SITE.address)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
     <div class="map-bar">
       <a class="map-link" href="${esc(mapDirectionsUrl())}" target="_blank" rel="noopener">${icon('pin')}Cómo llegar</a>
-      <a class="map-link alt" href="${esc(mapSearchUrl())}" target="_blank" rel="noopener">Abrir en Google Maps</a>
     </div>`);
   map.querySelector('iframe').addEventListener('load', () => map.classList.add('is-loaded'));
 }

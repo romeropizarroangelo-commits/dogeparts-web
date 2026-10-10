@@ -173,7 +173,9 @@ await js("quote=[];saveQuote()");
 // ---------- datos comerciales y mapa ----------
 const cards = await js("[...document.querySelectorAll('#contactCards .contact-card b')].map(b=>b.textContent.trim())");
 ok('Tarjetas de contacto reales', JSON.stringify(cards) === JSON.stringify(['WhatsApp','Teléfono','Correo','Horario','Dirección']), JSON.stringify(cards));
-ok('El mapa no se incrusta antes de llegar; al incrustar es OpenStreetMap con el pin', await js("(()=>{if(map.querySelector('iframe'))return false;loadMap();const f=map.querySelector('iframe');return !!f&&f.src.includes('openstreetmap.org')&&f.src.includes('marker=-12.075358,-77.009017')&&!!map.querySelector('.map-link')})()") === true);
+ok('El mapa no se incrusta antes de llegar; al incrustar es el embed oficial de Google con las coordenadas del local', await js("(()=>{if(map.querySelector('iframe'))return false;loadMap();const f=map.querySelector('iframe');return !!f&&f.src.startsWith('https://www.google.com/maps/embed?pb=')&&f.src.includes('!2d-77.009017!3d-12.075358')&&!!map.querySelector('.map-link')&&map.querySelector('.map-link').href.includes('google.com/maps/dir')})()") === true);
+await js("document.getElementById('contacto').scrollIntoView({behavior:'instant'})"); await wait(5000);
+ok('El mapa de Google carga de verdad dentro de la web (iframe cargado y visible)', await js("(()=>{const f=map.querySelector('iframe');const r=f.getBoundingClientRect();return map.classList.contains('is-loaded')&&r.width>300&&r.height>300&&getComputedStyle(f).opacity==='1'})()") === true);
 const ld = await js("[...document.querySelectorAll('script[type=\"application/ld+json\"]')].map(s=>JSON.parse(s.textContent))");
 const org = ld.find(x => x['@type'] === 'AutoPartsStore'), list = ld.find(x => x['@type'] === 'ItemList');
 ok('JSON-LD de empresa y 70 productos sin precio ni valoraciones', !!org && org.telephone === '+51 937 419 437' && !!org.geo && !!list && list.numberOfItems === 70 && list.itemListElement.every(i => i.item.sku && !i.item.offers));

@@ -111,10 +111,10 @@ actualiza la web en uno o dos minutos. Al ser una carpeta estática también
 funcionaría en Netlify, Vercel, Cloudflare Pages o cualquier hosting. No hay
 paso de compilación.
 
-El mapa de Contacto es una incrustación oficial de OpenStreetMap (sin clave)
-centrada en las coordenadas `lat`/`lon` de `datos/sitio.js`; los botones
-"Cómo llegar" y "Abrir en Google Maps" llevan a Google. Para mostrar los
-mosaicos de Google dentro de la web haría falta una clave de Maps Embed API.
+El mapa de Contacto es la incrustación oficial de Google Maps (el formato de
+"Compartir → Insertar un mapa", sin clave de API) centrada en las coordenadas
+`lat`/`lon` de `datos/sitio.js`, con el botón "Cómo llegar". Se carga solo al
+llegar a la sección.
 
 El dominio `dogeparts.pe` está registrado en Punto.pe y apunta a GitHub Pages
 (registros A `185.199.108-111.153` y CNAME `www`). El archivo `CNAME` de la raíz
